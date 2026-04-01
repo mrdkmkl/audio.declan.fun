@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AudioPix — Acoustic Image Transmission</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Exo+2:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #07080f;
+  --bg2: #0c0e19;
+  --surface: rgba(255,255,255,0.03);
+  --surface2: rgba(255,255,255,0.055);
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.13);
+  --tx: #ff6b2b;
+  --tx2: #ffaa55;
+  --tx-glow: rgba(255,107,43,0.35);
+  --rx: #00d4ff;
+  --rx2: #88eeff;
+  --rx-glow: rgba(0,212,255,0.35);
+  --white: #eeeef8;
+  --muted: #6a6a90;
+  --dim: #30304a;
+  --font-d: 'Orbitron', sans-serif;
+  --font-m: 'Space Mono', monospace;
+  --font-b: 'Exo 2', sans-serif;
+  --r: 14px;
+  --r2: 22px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px;scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--white);
+  font-family:var(--font-b);
+  min-height:100vh;
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ─── BACKGROUND ─── */
+#bg{
+  position:fixed;inset:0;z-index:0;
+  pointer-events:none;
+}
+
+/* ─── LAYOUT ─── */
+.app{
+  position:relative;z-index:1;
+  max-width:1060px;margin:0 auto;
+  padding:32px 20px 60px;
+  display:flex;flex-direction:column;gap:32px;
+}
+
+/* ─── HEADER ─── */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:20px;
+}
+.logo{display:flex;flex-direction:column;gap:3px}
+.logo-name{
+  font-family:var(--font-d);
+  font-size:20px;font-weight:900;letter-spacing:.18em;
+  background:linear-gradient(120deg,var(--tx),var(--tx2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+.logo-tag{
+  font-family:var(--font-m);font-size:8.5px;letter-spacing:.34em;
+  color:var(--muted);text-transform:uppercase;
+}
+
+/* ─── MODE TOGGLE ─── */
+.mode-toggle{
+  display:flex;
+  background:rgba(0,0,0,0.5);
+  border:1px solid var(--border2);
+  border-radius:100px;
+  padding:4px;gap:4px;
+}
+.mode-btn{
+  font-family:var(--font-d);font-size:9.5px;font-weight:700;letter-spacing:.16em;
+  padding:10px 22px;border-radius:100px;border:none;cursor:pointer;
+  background:transparent;color:var(--muted);
+  transition:all .35s cubic-bezier(.4,0,.2,1);
+  white-space:nowrap;
+}
+.mode-btn.on-tx{
+  background:linear-gradient(135deg,var(--tx),var(--tx2));
+  color:#fff;
+  box-shadow:0 0 22px var(--tx-glow),0 4px 16px rgba(255,107,43,.3);
+}
+.mode-btn.on-rx{
+  background:linear-gradient(135deg,var(--rx),var(--rx2));
+  color:#050d18;
+  box-shadow:0 0 22px var(--rx-glow),0 4px 16px rgba(0,212,255,.3);
+}
+
+/* ─── PANELS ─── */
+.panel{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r2);
+  padding:28px;
+  display:none;flex-direction:column;gap:22px;
+  backdrop-filter:blur(24px);
+  position:relative;overflow:hidden;
+}
+.panel::before{
+  content:'';
+  position:absolute;inset:0;border-radius:var(--r2);
+  pointer-events:none;
+  background:linear-gradient(135deg,rgba(255,255,255,.03) 0%,transparent 60%);
+}
+.panel.show{
+  display:flex;
+  animation:panelIn .45s cubic-bezier(.4,0,.2,1) forwards;
+}
+@keyframes panelIn{
+  from{opacity:0;transform:translateY(18px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.ptx{
+  border-color:rgba(255,107,43,.18);
+  box-shadow:0 0 50px rgba(255,107,43,.06),inset 0 1px 0 rgba(255,107,43,.09);
+}
+.prx{
+  border-color:rgba(0,212,255,.18);
+  box-shadow:0 0 50px rgba(0,212,255,.06),inset 0 1px 0 rgba(0,212,255,.09);
+}
+
+/* ─── PANEL HEADER ─── */
+.ph{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ph-left{display:flex;align-items:center;gap:12px}
+.ph-icon{
+  width:38px;height:38px;border-radius:11px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;flex-shrink:0;
+}
+.ph-icon.tx{background:rgba(255,107,43,.14);border:1px solid rgba(255,107,43,.28)}
+.ph-icon.rx{background:rgba(0,212,255,.14);border:1px solid rgba(0,212,255,.28)}
+.ph-name{
+  font-family:var(--font-d);font-size:12px;font-weight:700;letter-spacing:.22em;
+}
+.ph-name.tx{color:var(--tx)}
+.ph-name.rx{color:var(--rx)}
+.ph-badge{
+  font-family:var(--font-m);font-size:9px;letter-spacing:.12em;
+  color:var(--muted);
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:100px;padding:3px 10px;
+}
+
+/* ─── PALETTE STRIP ─── */
+.pal-strip{
+  display:flex;height:6px;border-radius:100px;overflow:hidden;
+  gap:.5px;flex:1;max-width:220px;
+}
+.pal-sw{flex:1}
+
+/* ─── DEVICE BAR ─── */
+.dev-bar{
+  display:flex;align-items:center;gap:12px;
+  background:rgba(0,0,0,.35);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  padding:11px 16px;
+}
+.dev-lbl{
+  font-family:var(--font-m);font-size:9px;letter-spacing:.24em;
+  color:var(--muted);white-space:nowrap;text-transform:uppercase;
+}
+.dev-sel{
+  flex:1;background:transparent;border:none;
+  color:var(--white);font-family:var(--font-m);font-size:10px;
+  cursor:pointer;outline:none;-webkit-appearance:none;
+}
+.dev-sel option{background:#13151f;color:var(--white)}
+
+/* ─── DROP ZONE ─── */
+.drop-zone{
+  border:2px dashed rgba(255,107,43,.28);
+  border-radius:var(--r2);
+  min-height:200px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;cursor:pointer;
+  transition:all .3s ease;
+  position:relative;overflow:hidden;
+  background:rgba(255,107,43,.018);
+}
+.drop-zone:hover,.drop-zone.drag{
+  border-color:var(--tx);
+  background:rgba(255,107,43,.05);
+  box-shadow:inset 0 0 40px rgba(255,107,43,.07);
+}
+.dz-icon{font-size:42px;opacity:.35;transition:all .3s}
+.drop-zone:hover .dz-icon,.drop-zone.drag .dz-icon{opacity:.75;transform:scale(1.08)}
+.dz-title{
+  font-family:var(--font-d);font-size:10.5px;font-weight:700;letter-spacing:.22em;
+  color:var(--muted);text-align:center;
+}
+.dz-sub{font-family:var(--font-m);font-size:9px;color:var(--dim);margin-top:4px}
+#prevCanvas{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:contain;opacity:0;transition:opacity .5s;pointer-events:none;
+}
+.drop-zone.loaded #prevCanvas{opacity:1}
+.drop-zone.loaded .dz-icon,.drop-zone.loaded .dz-title,.drop-zone.loaded .dz-sub{display:none}
+.dz-overlay{
+  position:absolute;bottom:0;left:0;right:0;
+  background:linear-gradient(transparent,rgba(0,0,0,.8));
+  padding:20px 16px 14px;
+  display:none;
+}
+.drop-zone.loaded .dz-overlay{display:block}
+.dz-overlay-text{
+  font-family:var(--font-m);font-size:9px;letter-spacing:.15em;color:var(--muted);
+}
+
+/* ─── CONTROLS ROW ─── */
+.ctrl-row{display:flex;gap:12px;flex-wrap:wrap}
+
+.btn-res{
+  display:flex;align-items:center;gap:10px;
+  background:rgba(255,107,43,.09);
+  border:1px solid rgba(255,107,43,.24);
+  border-radius:var(--r);padding:11px 16px;
+  cursor:pointer;color:var(--tx);
+  font-family:var(--font-m);font-size:9px;letter-spacing:.12em;
+  transition:all .2s;white-space:nowrap;
+}
+.btn-res:hover{background:rgba(255,107,43,.16);border-color:rgba(255,107,43,.4)}
+.btn-res-val{font-family:var(--font-d);font-size:18px;font-weight:700;line-height:1;color:var(--tx)}
+
+.btn-tx{
+  flex:1;min-width:120px;
+  background:linear-gradient(135deg,var(--tx),var(--tx2));
+  border:none;border-radius:var(--r);
+  padding:12px 28px;color:#fff;
+  font-family:var(--font-d);font-size:11px;font-weight:700;letter-spacing:.2em;
+  cursor:pointer;transition:all .3s;
+  box-shadow:0 4px 22px rgba(255,107,43,.3);
+  position:relative;overflow:hidden;
+}
+.btn-tx::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,rgba(255,255,255,.18),transparent);
+  opacity:0;transition:opacity .2s;
+}
+.btn-tx:hover::after{opacity:1}
+.btn-tx:hover{transform:translateY(-1px);box-shadow:0 7px 28px rgba(255,107,43,.42)}
+.btn-tx:active{transform:translateY(0)}
+.btn-tx:disabled{opacity:.35;cursor:not-allowed;transform:none!important;box-shadow:0 4px 22px rgba(255,107,43,.15)}
+.btn-tx.stopping{background:linear-gradient(135deg,#ff3060,#ff6b2b);box-shadow:0 4px 22px rgba(255,48,96,.35)}
+
+.btn-rx{
+  flex:1;
+  background:linear-gradient(135deg,var(--rx),var(--rx2));
+  border:none;border-radius:var(--r);
+  padding:12px 28px;color:#041018;
+  font-family:var(--font-d);font-size:11px;font-weight:700;letter-spacing:.2em;
+  cursor:pointer;transition:all .3s;
+  box-shadow:0 4px 22px rgba(0,212,255,.3);
+  position:relative;overflow:hidden;
+}
+.btn-rx:hover{transform:translateY(-1px);box-shadow:0 7px 28px rgba(0,212,255,.45)}
+.btn-rx:active{transform:translateY(0)}
+.btn-rx.stopping{background:linear-gradient(135deg,#ff3060,#ff6b2b);color:#fff;box-shadow:0 4px 22px rgba(255,48,96,.35)}
+
+.btn-ghost{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:var(--r);padding:12px 16px;
+  color:var(--muted);font-family:var(--font-d);font-size:10px;letter-spacing:.16em;
+  cursor:pointer;transition:all .2s;
+}
+.btn-ghost:hover{background:var(--surface);color:var(--white);border-color:var(--border2)}
+
+/* ─── PROGRESS ─── */
+.prog-section{display:flex;flex-direction:column;gap:12px}
+.prog-info{display:flex;justify-content:space-between;align-items:flex-end}
+.prog-lbl{font-family:var(--font-m);font-size:9px;letter-spacing:.22em;color:var(--muted);text-transform:uppercase}
+.prog-pct{font-family:var(--font-d);font-size:26px;font-weight:900;color:var(--tx);line-height:1}
+.prog-track{
+  width:100%;height:5px;
+  background:rgba(255,255,255,.06);border-radius:100px;overflow:hidden;
+}
+.prog-fill{
+  height:100%;border-radius:100px;
+  background:linear-gradient(90deg,var(--tx),var(--tx2));
+  box-shadow:0 0 12px rgba(255,107,43,.7);
+  width:0%;transition:width .08s linear;
+}
+
+/* ─── SPECTRUM ANALYZER ─── */
+.spec-wrap{
+  height:52px;display:flex;align-items:flex-end;gap:1.5px;
+  padding:0 2px;
+}
+.spec-b{
+  flex:1;border-radius:2px 2px 0 0;
+  background:rgba(255,107,43,.2);
+  transition:height .08s ease,background .08s ease;
+  min-height:2px;
+}
+
+/* ─── STATUS ─── */
+.status-row{
+  display:flex;align-items:center;gap:9px;
+  font-family:var(--font-m);font-size:10px;color:var(--muted);
+  padding:6px 0;
+}
+.led{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--dim);flex-shrink:0;
+  transition:all .3s;
+}
+.led.on-tx{
+  background:var(--tx);
+  box-shadow:0 0 8px var(--tx);
+  animation:blink 1.2s ease infinite;
+}
+.led.on-rx{
+  background:var(--rx);
+  box-shadow:0 0 8px var(--rx);
+  animation:blink 1.2s ease infinite;
+}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ─── RX VISUALIZER ─── */
+.rx-viz{
+  height:90px;
+  background:rgba(0,0,0,.4);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  overflow:hidden;position:relative;
+}
+#specCanvas{width:100%;height:100%}
+
+/* ─── RX STATE BAR ─── */
+.rx-state-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 16px;
+  background:rgba(0,0,0,.28);border:1px solid var(--border);
+  border-radius:var(--r);
+}
+.rx-state-txt{
+  font-family:var(--font-d);font-size:10px;font-weight:700;letter-spacing:.2em;
+  color:var(--rx);
+}
+.rx-pix-cnt{font-family:var(--font-m);font-size:11px;color:var(--muted)}
+
+/* ─── IMAGE OUTPUT ─── */
+.img-out{
+  background:rgba(0,0,0,.45);
+  border:1px solid var(--border);
+  border-radius:var(--r2);
+  overflow:hidden;position:relative;
+  min-height:240px;
+  display:flex;align-items:center;justify-content:center;
+}
+.img-ph{display:flex;flex-direction:column;align-items:center;gap:12px;opacity:.25}
+.img-ph-icon{font-size:44px}
+.img-ph-txt{font-family:var(--font-d);font-size:9px;letter-spacing:.3em;color:var(--rx)}
+#rcvCanvas{
+  max-width:100%;max-height:400px;
+  image-rendering:pixelated;
+  display:none;
+  width:100%;
+}
+.img-actions{
+  position:absolute;bottom:12px;right:12px;
+  display:none;
+}
+.img-out.has-img .img-actions{display:flex;gap:8px}
+.img-out.has-img .img-ph{display:none}
+.btn-save{
+  font-family:var(--font-d);font-size:9px;letter-spacing:.16em;
+  background:rgba(0,212,255,.15);border:1px solid rgba(0,212,255,.35);
+  color:var(--rx);border-radius:8px;padding:8px 14px;
+  cursor:pointer;transition:all .2s;
+}
+.btn-save:hover{background:rgba(0,212,255,.28)}
+
+/* ─── RX ROW ─── */
+.rx-row{display:flex;gap:12px;flex-wrap:wrap}
+
+/* ─── RESOLUTION POPUP ─── */
+.overlay{
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.72);
+  z-index:200;
+  display:none;align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(6px);
+}
+.overlay.open{display:flex}
+.res-popup{
+  background:#10121e;
+  border:1px solid var(--border2);border-bottom:none;
+  border-radius:24px 24px 0 0;
+  padding:30px 28px 36px;
+  width:100%;max-width:480px;
+  display:flex;flex-direction:column;gap:26px;
+}
+.overlay.open .res-popup{animation:slideUp .38s cubic-bezier(.4,0,.2,1) forwards}
+@keyframes slideUp{
+  from{transform:translateY(100%);opacity:0}
+  to{transform:translateY(0);opacity:1}
+}
+.pop-h{display:flex;align-items:center;justify-content:space-between}
+.pop-title{font-family:var(--font-d);font-size:13px;font-weight:700;letter-spacing:.22em;color:var(--tx)}
+.pop-close{
+  width:32px;height:32px;border-radius:50%;
+  border:1px solid var(--border2);background:var(--surface2);
+  color:var(--muted);cursor:pointer;font-size:15px;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .2s;
+}
+.pop-close:hover{background:var(--surface);color:var(--white)}
+
+.pop-preview{display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:center}
+.pop-res-big{
+  font-family:var(--font-d);font-size:52px;font-weight:900;
+  color:var(--tx);line-height:1;min-width:80px;
+}
+.pop-res-info{display:flex;flex-direction:column;gap:5px}
+.pop-res-px{font-family:var(--font-m);font-size:11px;color:var(--muted)}
+.pop-res-time{font-family:var(--font-m);font-size:10px;color:var(--dim)}
+.pop-grid{
+  width:62px;height:62px;
+  display:grid;gap:1px;
+  border:1px solid var(--border2);border-radius:7px;overflow:hidden;
+}
+
+.range-wrap{display:flex;flex-direction:column;gap:10px}
+.range-lbls{display:flex;justify-content:space-between;font-family:var(--font-m);font-size:9px;color:var(--dim)}
+
+input[type=range]{
+  -webkit-appearance:none;width:100%;height:4px;
+  background:rgba(255,107,43,.22);border-radius:100px;outline:none;cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:22px;height:22px;border-radius:50%;
+  background:linear-gradient(135deg,var(--tx),var(--tx2));
+  box-shadow:0 0 14px rgba(255,107,43,.65);cursor:pointer;
+  transition:transform .15s;
+}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
+
+.btn-apply{
+  width:100%;background:linear-gradient(135deg,var(--tx),var(--tx2));
+  border:none;border-radius:var(--r);padding:13px;
+  color:#fff;font-family:var(--font-d);font-size:11px;font-weight:700;letter-spacing:.2em;
+  cursor:pointer;box-shadow:0 4px 20px rgba(255,107,43,.3);
+  transition:all .2s;
+}
+.btn-apply:hover{box-shadow:0 7px 28px rgba(255,107,43,.45);transform:translateY(-1px)}
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:100px}
+
+/* ─── TOOLTIP ─── */
+.freq-tip{
+  position:absolute;bottom:110%;left:50%;transform:translateX(-50%);
+  background:#13151f;border:1px solid var(--border2);
+  border-radius:8px;padding:8px 12px;
+  font-family:var(--font-m);font-size:9px;color:var(--muted);
+  white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .2s;
+  z-index:10;
+}
+</style>
+</head>
+<body>
+
+<canvas id="bg"></canvas>
+
+<div class="app">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <div class="logo-name">AUDIOPIX</div>
+      <div class="logo-tag">Acoustic Image Transmission System v1.0</div>
+    </div>
+    <div class="mode-toggle">
+      <button class="mode-btn on-tx" id="btnTx" onclick="setMode('tx')">⬆&thinsp; TRANSMIT</button>
+      <button class="mode-btn" id="btnRx" onclick="setMode('rx')">⬇&thinsp; RECEIVE</button>
+    </div>
+  </header>
+
+  <!-- ══════════ TRANSMIT PANEL ══════════ -->
+  <div class="panel ptx show" id="panTx">
+
+    <div class="ph">
+      <div class="ph-left">
+        <div class="ph-icon tx">📡</div>
+        <div class="ph-name tx">TRANSMITTER</div>
+      </div>
+      <div class="pal-strip" id="palTx"></div>
+    </div>
+
+    <!-- Speaker selector -->
+    <div class="dev-bar">
+      <div class="dev-lbl">🔊 Output</div>
+      <select class="dev-sel" id="spkSel" title="Speaker / Audio Output"></select>
+      <div class="ph-badge" id="spkBadge">—</div>
+    </div>
+
+    <!-- Drop zone -->
+    <div class="drop-zone" id="dropZone">
+      <canvas id="prevCanvas"></canvas>
+      <div class="dz-icon">🖼</div>
+      <div class="dz-title">DROP IMAGE HERE</div>
+      <div class="dz-sub">or click to browse files</div>
+      <div class="dz-overlay">
+        <div class="dz-overlay-text" id="dzInfo">—</div>
+      </div>
+    </div>
+    <input type="file" id="fileIn" accept="image/*" style="display:none">
+
+    <!-- Controls -->
+    <div class="ctrl-row">
+      <button class="btn-res" onclick="openPop()">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <span style="font-size:8px;letter-spacing:.2em;color:var(--muted)">RESOLUTION</span>
+          <div class="btn-res-val" id="resDisp">32</div>
+        </div>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="opacity:.5">
+          <path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="btn-tx" id="btnTrans" onclick="toggleTx()" disabled>TRANSMIT</button>
+    </div>
+
+    <!-- Progress -->
+    <div class="prog-section">
+      <div class="prog-info">
+        <div>
+          <div class="prog-lbl">Transmission Progress</div>
+          <div style="font-family:var(--font-m);font-size:9px;color:var(--dim);margin-top:4px" id="txEta">—</div>
+        </div>
+        <div class="prog-pct" id="progPct">—</div>
+      </div>
+      <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+      <div class="spec-wrap" id="txSpec"></div>
+    </div>
+
+    <div class="status-row">
+      <div class="led" id="txLed"></div>
+      <span id="txMsg">Load an image to begin</span>
+    </div>
+  </div>
+
+  <!-- ══════════ RECEIVE PANEL ══════════ -->
+  <div class="panel prx" id="panRx">
+
+    <div class="ph">
+      <div class="ph-left">
+        <div class="ph-icon rx">📻</div>
+        <div class="ph-name rx">RECEIVER</div>
+      </div>
+      <div class="pal-strip" id="palRx"></div>
+    </div>
+
+    <!-- Mic selector -->
+    <div class="dev-bar">
+      <div class="dev-lbl">🎙 Mic</div>
+      <select class="dev-sel" id="micSel" onchange="onMicChange()" title="Microphone Input"></select>
+      <div class="ph-badge" id="micBadge">—</div>
+    </div>
+
+    <!-- Spectrum visualizer -->
+    <div class="rx-viz">
+      <canvas id="specCanvas"></canvas>
+    </div>
+
+    <!-- State bar -->
+    <div class="rx-state-bar">
+      <div class="rx-state-txt" id="rxState">IDLE — AWAITING SYNC</div>
+      <div class="rx-pix-cnt" id="rxPxCnt">0 px</div>
+    </div>
+
+    <!-- Expected resolution -->
+    <div class="dev-bar">
+      <div class="dev-lbl">Resolution</div>
+      <select class="dev-sel" id="rxRes">
+        <option value="8">8 × 8</option>
+        <option value="16">16 × 16</option>
+        <option value="24">24 × 24</option>
+        <option value="32" selected>32 × 32</option>
+        <option value="48">48 × 48</option>
+        <option value="64">64 × 64</option>
+        <option value="80">80 × 80</option>
+        <option value="100">100 × 100</option>
+      </select>
+    </div>
+
+    <!-- Image output -->
+    <div class="img-out" id="imgOut">
+      <div class="img-ph">
+        <div class="img-ph-icon">📡</div>
+        <div class="img-ph-txt">AWAITING SIGNAL</div>
+      </div>
+      <canvas id="rcvCanvas"></canvas>
+      <div class="img-actions">
+        <button class="btn-save" onclick="saveImg()">💾 SAVE</button>
+      </div>
+    </div>
+
+    <div class="status-row">
+      <div class="led" id="rxLed"></div>
+      <span id="rxMsg">Microphone not active</span>
+    </div>
+
+    <div class="rx-row">
+      <button class="btn-rx" id="btnListen" onclick="toggleRx()">START LISTENING</button>
+      <button class="btn-ghost" onclick="clearRx()">CLEAR</button>
+    </div>
+  </div>
+</div>
+
+<!-- RESOLUTION POPUP -->
+<div class="overlay" id="overlay" onclick="overlayClick(event)">
+  <div class="res-popup">
+    <div class="pop-h">
+      <div class="pop-title">RESOLUTION SETTINGS</div>
+      <button class="pop-close" onclick="closePop()">✕</button>
+    </div>
+
+    <div class="pop-preview">
+      <div class="pop-res-big" id="popNum">32</div>
+      <div class="pop-res-info">
+        <div class="pop-res-px" id="popPx">1,024 pixels</div>
+        <div class="pop-res-time" id="popTime">~34 sec transfer</div>
+        <div style="font-family:var(--font-m);font-size:9px;color:var(--dim);margin-top:6px" id="popNote">Lower = faster</div>
+      </div>
+      <div class="pop-grid" id="popGrid"></div>
+    </div>
+
+    <div class="range-wrap">
+      <input type="range" id="resSlider" min="8" max="100" step="4" value="32" oninput="onResChange(this.value)">
+      <div class="range-lbls">
+        <span>8 × 8 (fastest)</span>
+        <span>100 × 100 (5+ min)</span>
+      </div>
+    </div>
+
+    <button class="btn-apply" onclick="closePop()">APPLY & CLOSE</button>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════
+const FREQ_LO   = 800;    // Hz - lowest color frequency
+const FREQ_HI   = 4000;   // Hz - highest color frequency
+const SYNC_F    = 200;    // Hz - sync start tone
+const END_F     = 5400;   // Hz - transmission end tone
+const N_COLORS  = 124;
+const TONE_MS   = 30;     // ms per pixel tone
+const GUARD_MS  = 3;      // ms silence between tones
+const PERIOD_MS = TONE_MS + GUARD_MS;
+const SYNC_DUR  = 420;    // ms
+const END_DUR   = 420;    // ms
+
+// ═══════════════════════════════════════════
+// PALETTE — 124 colors
+// ═══════════════════════════════════════════
+function hsl2rgb(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(f(0)*255), Math.round(f(8)*255), Math.round(f(4)*255)];
+}
+
+const PAL = (() => {
+  const c = [];
+  // 24 hues × 5 lightness = 120
+  for (let h = 0; h < 24; h++) {
+    const hue = h * 15;
+    c.push(hsl2rgb(hue, 92, 17));
+    c.push(hsl2rgb(hue, 88, 33));
+    c.push(hsl2rgb(hue, 82, 50));
+    c.push(hsl2rgb(hue, 76, 67));
+    c.push(hsl2rgb(hue, 66, 82));
+  }
+  // 4 neutrals
+  c.push([8,8,8]);
+  c.push([78,78,78]);
+  c.push([162,162,162]);
+  c.push([242,242,242]);
+  return c; // exactly 124
+})();
+
+function idx2freq(i)  { return FREQ_LO + (i / (N_COLORS-1)) * (FREQ_HI - FREQ_LO); }
+function freq2idx(f)  {
+  const i = Math.round((f - FREQ_LO) / (FREQ_HI - FREQ_LO) * (N_COLORS-1));
+  return Math.max(0, Math.min(N_COLORS-1, i));
+}
+
+function quantize(r, g, b) {
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < PAL.length; i++) {
+    const [pr,pg,pb] = PAL[i];
+    const d = 0.2126*(r-pr)**2 + 0.7152*(g-pg)**2 + 0.0722*(b-pb)**2;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
+let mode         = 'tx';
+let resolution   = 32;
+let origImg      = null;   // HTMLImageElement — original loaded image
+let txPixels     = null;   // Uint8Array of palette indices
+let txAudioCtx   = null;
+let isTx         = false;
+
+let rxAudioCtx   = null;
+let rxStream     = null;
+let rxAnalyser   = null;
+let rxFD         = null;   // frequency data buffer
+let rxInterval   = null;
+let rxAnimId     = null;
+let isRx         = false;
+let rxPhase      = 'IDLE'; // IDLE | SYNC | RECEIVING | DONE
+let rxPixels     = [];
+let rxExpected   = 0;
+let rxStartTime  = 0;
+let rxLastPx     = -1;
+let rxSyncSince  = 0;
+let rxFreqRes    = 1;
+
+let curTxFreq    = 0;
+
+// ═══════════════════════════════════════════
+// BACKGROUND CANVAS
+// ═══════════════════════════════════════════
+const bgEl = document.getElementById('bg');
+const bgX  = bgEl.getContext('2d');
+let bgT = 0;
+
+function resizeBg() {
+  bgEl.width  = window.innerWidth;
+  bgEl.height = window.innerHeight;
+}
+resizeBg();
+window.addEventListener('resize', resizeBg);
+
+(function drawBg() {
+  const W = bgEl.width, H = bgEl.height;
+  bgX.clearRect(0,0,W,H);
+
+  const col = mode === 'tx'
+    ? (a) => `rgba(255,107,43,${a})`
+    : (a) => `rgba(0,212,255,${a})`;
+
+  for (let w = 0; w < 6; w++) {
+    const ph  = bgT * 0.00045 + w * 0.8;
+    const amp = 25 + w * 14;
+    const fq  = 0.004 + w * 0.0018;
+    const yb  = H * (0.18 + w * 0.12);
+
+    bgX.beginPath();
+    bgX.moveTo(0, yb);
+    for (let x = 0; x <= W; x += 3) {
+      bgX.lineTo(x, yb + Math.sin(x*fq + ph) * amp * Math.sin(bgT*0.00028 + w*0.5));
+    }
+    const a = 0.025 + w * 0.012;
+    bgX.strokeStyle = col(a);
+    bgX.lineWidth = 1.2;
+    bgX.stroke();
+  }
+
+  bgT++;
+  requestAnimationFrame(drawBg);
+})();
+
+// ═══════════════════════════════════════════
+// SPECTRUM BARS (TX side)
+// ═══════════════════════════════════════════
+function buildTxSpec() {
+  const c = document.getElementById('txSpec');
+  c.innerHTML = '';
+  for (let i = 0; i < 48; i++) {
+    const b = document.createElement('div');
+    b.className = 'spec-b'; b.id = `sb${i}`;
+    c.appendChild(b);
+  }
+}
+
+let specRafId = null;
+function animateSpec() {
+  const N = 48;
+  for (let i = 0; i < N; i++) {
+    const bFreq = FREQ_LO + (i/(N-1)) * (FREQ_HI - FREQ_LO);
+    const dist  = Math.abs(bFreq - curTxFreq);
+    const span  = (FREQ_HI - FREQ_LO) / 8;
+    const inten = Math.max(0, 1 - dist/span);
+    const noise = isTx ? Math.random() * 5 : 0;
+    const h     = Math.round(inten * 44 + noise);
+    const el    = document.getElementById(`sb${i}`);
+    if (!el) continue;
+    el.style.height = `${Math.max(2, h)}px`;
+    const br = Math.round(107 + inten * 100);
+    el.style.background = isTx
+      ? `rgba(255,${br},43,${0.25 + inten * 0.75})`
+      : 'rgba(255,107,43,0.18)';
+  }
+  specRafId = requestAnimationFrame(animateSpec);
+}
+
+// ═══════════════════════════════════════════
+// PALETTE STRIPS
+// ═══════════════════════════════════════════
+function buildPalStrips() {
+  ['palTx','palRx'].forEach(id => {
+    const el = document.getElementById(id);
+    PAL.forEach(([r,g,b]) => {
+      const s = document.createElement('div');
+      s.className = 'pal-sw';
+      s.style.background = `rgb(${r},${g},${b})`;
+      el.appendChild(s);
+    });
+  });
+}
+
+// ═══════════════════════════════════════════
+// MODE SWITCH
+// ═══════════════════════════════════════════
+function setMode(m) {
+  mode = m;
+  document.getElementById('btnTx').className = 'mode-btn' + (m==='tx' ? ' on-tx' : '');
+  document.getElementById('btnRx').className = 'mode-btn' + (m==='rx' ? ' on-rx' : '');
+  document.getElementById('panTx').className = 'panel ptx' + (m==='tx' ? ' show' : '');
+  document.getElementById('panRx').className = 'panel prx' + (m==='rx' ? ' show' : '');
+}
+
+// ═══════════════════════════════════════════
+// DEVICE ENUMERATION
+// ═══════════════════════════════════════════
+async function enumDevices() {
+  try {
+    const tmp = await navigator.mediaDevices.getUserMedia({audio:true});
+    tmp.getTracks().forEach(t => t.stop());
+  } catch(e) {}
+
+  const devs = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+  const spks = devs.filter(d => d.kind === 'audiooutput');
+  const mics = devs.filter(d => d.kind === 'audioinput');
+
+  const spkEl = document.getElementById('spkSel');
+  spkEl.innerHTML = '<option value="">Default Speaker</option>';
+  spks.forEach((d,i) => {
+    const o = document.createElement('option');
+    o.value = d.deviceId;
+    o.text  = d.label || `Speaker ${i+1}`;
+    spkEl.appendChild(o);
+  });
+  updateBadge('spkBadge', spkEl);
+  spkEl.addEventListener('change', () => updateBadge('spkBadge', spkEl));
+
+  const micEl = document.getElementById('micSel');
+  micEl.innerHTML = '';
+  mics.forEach((d,i) => {
+    const o = document.createElement('option');
+    o.value = d.deviceId;
+    o.text  = d.label || `Microphone ${i+1}`;
+    micEl.appendChild(o);
+  });
+  updateBadge('micBadge', micEl);
+  micEl.addEventListener('change', () => updateBadge('micBadge', micEl));
+}
+
+function updateBadge(id, sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const lbl = opt ? opt.text : '—';
+  document.getElementById(id).textContent = lbl.length > 20 ? lbl.slice(0,18)+'…' : lbl;
+}
+
+// ═══════════════════════════════════════════
+// IMAGE LOADING
+// ═══════════════════════════════════════════
+const dz   = document.getElementById('dropZone');
+const fin  = document.getElementById('fileIn');
+const pcv  = document.getElementById('prevCanvas');
+const pctx = pcv.getContext('2d');
+
+dz.addEventListener('click', () => fin.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadFile(f);
+});
+fin.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+function loadFile(file) {
+  const rd = new FileReader();
+  rd.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      origImg = img;
+      showPreview(img);
+      processImg(img, resolution);
+    };
+    img.src = ev.target.result;
+  };
+  rd.readAsDataURL(file);
+}
+
+function showPreview(img) {
+  pcv.width  = dz.offsetWidth  || 400;
+  pcv.height = dz.offsetHeight || 200;
+  const sc = Math.min(pcv.width/img.width, pcv.height/img.height);
+  const w  = img.width * sc, h = img.height * sc;
+  const x  = (pcv.width-w)/2,  y = (pcv.height-h)/2;
+  pctx.clearRect(0,0,pcv.width,pcv.height);
+  pctx.drawImage(img, x, y, w, h);
+  dz.classList.add('loaded');
+}
+
+function processImg(img, res) {
+  const oc  = document.createElement('canvas');
+  oc.width  = res; oc.height = res;
+  const ox  = oc.getContext('2d');
+  ox.drawImage(img, 0, 0, res, res);
+  const dat = ox.getImageData(0, 0, res, res).data;
+  txPixels  = new Uint8Array(res * res);
+  for (let i = 0; i < res*res; i++) {
+    txPixels[i] = quantize(dat[i*4], dat[i*4+1], dat[i*4+2]);
+  }
+  document.getElementById('btnTrans').disabled = false;
+  document.getElementById('dzInfo').textContent =
+    `${res}×${res} · ${(res*res).toLocaleString()} pixels · 124-color palette`;
+  setTxMsg(`Image ready — ${(res*res).toLocaleString()} px`);
+}
+
+// ═══════════════════════════════════════════
+// TRANSMITTER
+// ═══════════════════════════════════════════
+function toggleTx() {
+  if (isTx) stopTx();
+  else       startTx();
+}
+
+async function startTx() {
+  if (!txPixels) return;
+  isTx = true;
+
+  const btn = document.getElementById('btnTrans');
+  btn.textContent = 'STOP TX';
+  btn.classList.add('stopping');
+
+  document.getElementById('txLed').className = 'led on-tx';
+  setTxMsg('Initialising audio…');
+
+  try {
+    txAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Try to set output device
+    const spkId = document.getElementById('spkSel').value;
+    if (spkId && txAudioCtx.setSinkId) {
+      await txAudioCtx.setSinkId(spkId).catch(() => {});
+    }
+
+    const master = txAudioCtx.createGain();
+    master.gain.value = 0.85;
+    master.connect(txAudioCtx.destination);
+
+    function sched(freq, t0, dur) {
+      const osc = txAudioCtx.createOscillator();
+      const g   = txAudioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      osc.connect(g); g.connect(master);
+      const att = 0.004, rel = 0.004;
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(1, t0 + att);
+      g.gain.setValueAtTime(1, t0 + dur - rel);
+      g.gain.linearRampToValueAtTime(0, t0 + dur);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.01);
+    }
+
+    let t = txAudioCtx.currentTime + 0.08;
+    const t0 = t;
+
+    sched(SYNC_F, t, SYNC_DUR/1000);
+    t += SYNC_DUR/1000 + GUARD_MS/1000;
+
+    for (let i = 0; i < txPixels.length; i++) {
+      sched(idx2freq(txPixels[i]), t, TONE_MS/1000);
+      t += PERIOD_MS/1000;
+    }
+
+    sched(END_F, t, END_DUR/1000);
+    t += END_DUR/1000;
+
+    const total = t - t0;
+    animateSpec();
+
+    const trackRaf = () => {
+      if (!isTx) return;
+      const el = txAudioCtx.currentTime - t0;
+      const p  = Math.min(el / total, 1);
+
+      // Current pixel index
+      const pi = Math.floor((el - SYNC_DUR/1000) / (PERIOD_MS/1000));
+      if (pi >= 0 && pi < txPixels.length) {
+        curTxFreq = idx2freq(txPixels[pi]);
+      } else if (el < SYNC_DUR/1000) {
+        curTxFreq = SYNC_F;
+      } else {
+        curTxFreq = END_F;
+      }
+
+      setProgress(p);
+
+      const done    = Math.max(0, Math.min(pi, txPixels.length));
+      const remSec  = Math.max(0, total - el);
+      const rm = Math.floor(remSec/60), rs = Math.floor(remSec%60);
+      const remStr  = rm > 0 ? `${rm}m ${rs}s remaining` : `${rs}s remaining`;
+      document.getElementById('txEta').textContent =
+        pi >= 0 ? `Pixel ${done.toLocaleString()} / ${txPixels.length.toLocaleString()} — ${remStr}` : remStr;
+      setTxMsg(`Transmitting…`);
+
+      if (p < 1) requestAnimationFrame(trackRaf);
+      else        finishTx(true);
+    };
+    requestAnimationFrame(trackRaf);
+
+  } catch(e) {
+    setTxMsg(`Error: ${e.message}`);
+    finishTx(false);
+  }
+}
+
+function stopTx() {
+  isTx = false;
+  if (txAudioCtx) { txAudioCtx.close().catch(()=>{}); txAudioCtx = null; }
+  finishTx(false);
+  setTxMsg('Transmission stopped');
+}
+
+function finishTx(complete) {
+  isTx = false;
+  curTxFreq = 0;
+  if (specRafId) { cancelAnimationFrame(specRafId); specRafId = null; }
+  if (txAudioCtx && complete) { txAudioCtx.close().catch(()=>{}); txAudioCtx = null; }
+
+  const btn = document.getElementById('btnTrans');
+  btn.textContent = 'TRANSMIT';
+  btn.classList.remove('stopping');
+  document.getElementById('txLed').className = 'led';
+
+  if (complete) {
+    setProgress(1);
+    setTxMsg('Transmission complete ✓');
+    document.getElementById('txEta').textContent = 'Done';
+  }
+}
+
+function setProgress(p) {
+  const pct = Math.round(p * 100);
+  document.getElementById('progFill').style.width = `${pct}%`;
+  document.getElementById('progPct').textContent  = p > 0 ? `${pct}%` : '—';
+}
+
+function setTxMsg(m) { document.getElementById('txMsg').textContent = m; }
+
+// ═══════════════════════════════════════════
+// RECEIVER
+// ═══════════════════════════════════════════
+const specCv = document.getElementById('specCanvas');
+const specX  = specCv.getContext('2d');
+
+function resizeSpec() {
+  specCv.width  = specCv.parentElement.offsetWidth  || 600;
+  specCv.height = specCv.parentElement.offsetHeight || 90;
+}
+resizeSpec();
+window.addEventListener('resize', resizeSpec);
+
+function toggleRx() {
+  if (isRx) stopRx();
+  else       startRx();
+}
+
+async function startRx() {
+  const micId = document.getElementById('micSel').value;
+  const constraints = {
+    audio: {
+      deviceId: micId ? { exact: micId } : undefined,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      sampleRate: 48000,
+    }
+  };
+
+  try {
+    rxStream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch(e) {
+    setRxMsg(`Microphone error: ${e.message}`); return;
+  }
+
+  rxAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src  = rxAudioCtx.createMediaStreamSource(rxStream);
+  rxAnalyser = rxAudioCtx.createAnalyser();
+  rxAnalyser.fftSize              = 8192;
+  rxAnalyser.smoothingTimeConstant = 0.0;
+  src.connect(rxAnalyser);
+  rxFD     = new Uint8Array(rxAnalyser.frequencyBinCount);
+  rxFreqRes = rxAudioCtx.sampleRate / rxAnalyser.fftSize;
+
+  isRx     = true;
+  rxPhase  = 'IDLE';
+  rxPixels = [];
+  rxLastPx = -1;
+  rxSyncSince = 0;
+
+  const rxR = parseInt(document.getElementById('rxRes').value);
+  rxExpected = rxR * rxR;
+
+  // Init received canvas
+  const rc = document.getElementById('rcvCanvas');
+  rc.width = rc.height = rxR;
+  const rcx = rc.getContext('2d');
+  rcx.fillStyle = '#000';
+  rcx.fillRect(0,0,rxR,rxR);
+  rc.style.display = 'block';
+  rc.style.imageRendering = 'pixelated';
+  document.getElementById('imgOut').classList.remove('has-img');
+
+  document.getElementById('rxLed').className = 'led on-rx';
+  setRxState('IDLE — AWAITING SYNC');
+  setRxMsg('Listening for signal…');
+
+  const btn = document.getElementById('btnListen');
+  btn.textContent = 'STOP';
+  btn.classList.add('stopping');
+
+  function peakIn(fLow, fHigh) {
+    rxAnalyser.getByteFrequencyData(rxFD);
+    const b0 = Math.floor(fLow  / rxFreqRes);
+    const b1 = Math.ceil (fHigh / rxFreqRes);
+    let maxM = 0, maxB = b0;
+    for (let i = b0; i <= Math.min(b1, rxFD.length-1); i++) {
+      if (rxFD[i] > maxM) { maxM = rxFD[i]; maxB = i; }
+    }
+    return { freq: maxB * rxFreqRes, mag: maxM };
+  }
+
+  function broadPeak() {
+    rxAnalyser.getByteFrequencyData(rxFD);
+    const b0 = Math.floor(80   / rxFreqRes);
+    const b1 = Math.ceil (6500 / rxFreqRes);
+    let maxM = 0, maxB = b0;
+    for (let i = b0; i <= Math.min(b1, rxFD.length-1); i++) {
+      if (rxFD[i] > maxM) { maxM = rxFD[i]; maxB = i; }
+    }
+    return { freq: maxB * rxFreqRes, mag: maxM };
+  }
+
+  // ── RX CHECK (every 2 ms) ──
+  rxInterval = setInterval(() => {
+    if (!isRx) return;
+    const now = performance.now();
+    const peak = broadPeak();
+
+    if (rxPhase === 'IDLE') {
+      const sp = peakIn(SYNC_F - 50, SYNC_F + 50);
+      if (sp.mag > 72) {
+        if (!rxSyncSince) rxSyncSince = now;
+        if (now - rxSyncSince > 120) {
+          rxPhase = 'SYNC';
+          setRxState('SYNC DETECTED — LOCKING');
+          rxSyncSince = now;
+        }
+      } else {
+        rxSyncSince = 0;
+      }
+
+    } else if (rxPhase === 'SYNC') {
+      const sp = peakIn(SYNC_F - 60, SYNC_F + 60);
+      if (sp.mag < 50) {
+        // sync tone ended → start receiving
+        rxPhase = 'RECEIVING';
+        rxStartTime = now;
+        rxLastPx    = -1;
+        setRxState('RECEIVING DATA');
+        setRxMsg(`Receiving ${rxR}×${rxR} image…`);
+      }
+
+    } else if (rxPhase === 'RECEIVING') {
+      // Check for end tone
+      const ep = peakIn(END_F - 200, END_F + 200);
+      if (ep.mag > 65 && ep.freq > 4800) {
+        finishRx();
+        return;
+      }
+
+      const elapsed = now - rxStartTime;
+      const pxIdx   = Math.floor(elapsed / PERIOD_MS);
+      const posInPx = elapsed % PERIOD_MS;
+
+      // Sample in central portion of each tone
+      if (posInPx >= TONE_MS * 0.25 && posInPx <= TONE_MS * 0.78 && pxIdx !== rxLastPx) {
+        rxLastPx = pxIdx;
+        if (pxIdx < rxExpected) {
+          // get best peak in color range
+          const cp = peakIn(FREQ_LO - 60, FREQ_HI + 60);
+          if (cp.mag > 38) {
+            const ci = freq2idx(cp.freq);
+            rxPixels[pxIdx] = ci;
+            drawRxPixel(pxIdx, ci, rxR);
+            const cnt = rxPixels.filter(v => v !== undefined).length;
+            document.getElementById('rxPxCnt').textContent = `${cnt} / ${rxExpected} px`;
+          }
+        }
+      }
+
+      if (pxIdx >= rxExpected) finishRx();
+    }
+
+  }, 2);
+
+  // ── SPECTRUM ANIMATION ──
+  function drawSpec() {
+    if (!isRx) return;
+    rxAnalyser.getByteFrequencyData(rxFD);
+    const W = specCv.width, H = specCv.height;
+    specX.fillStyle = 'rgba(0,0,0,0.45)';
+    specX.fillRect(0,0,W,H);
+
+    const maxF  = 6400;
+    const maxB  = Math.floor(maxF / rxFreqRes);
+    const nBars = Math.min(maxB, Math.floor(W / 2));
+    const bw    = W / nBars;
+
+    for (let i = 0; i < nBars; i++) {
+      const bin  = Math.floor(i * maxB / nBars);
+      const mag  = rxFD[Math.min(bin, rxFD.length-1)];
+      const bh   = (mag / 255) * H;
+      const freq = bin * rxFreqRes;
+
+      let col;
+      if (Math.abs(freq - SYNC_F) < 55)  col = 'rgba(255,220,0,0.9)';
+      else if (freq > 5000 && freq < 5900) col = 'rgba(255,0,180,0.85)';
+      else if (freq >= FREQ_LO && freq <= FREQ_HI) {
+        const t = (freq - FREQ_LO) / (FREQ_HI - FREQ_LO);
+        const ci = Math.round(t * (N_COLORS-1));
+        const [r,g,b] = PAL[ci];
+        col = `rgba(${r},${g},${b},0.82)`;
+      } else {
+        col = 'rgba(0,212,255,0.28)';
+      }
+
+      specX.fillStyle = col;
+      specX.fillRect(Math.round(i * bw), H - bh, Math.max(1, bw - 0.5), bh);
+    }
+
+    rxAnimId = requestAnimationFrame(drawSpec);
+  }
+  drawSpec();
+}
+
+function drawRxPixel(idx, ci, res) {
+  const rc  = document.getElementById('rcvCanvas');
+  const rctx = rc.getContext('2d');
+  const x   = idx % res;
+  const y   = Math.floor(idx / res);
+  const [r,g,b] = PAL[ci];
+  rctx.fillStyle = `rgb(${r},${g},${b})`;
+  rctx.fillRect(x, y, 1, 1);
+}
+
+function finishRx() {
+  rxPhase = 'DONE';
+  const cnt = rxPixels.filter(v => v !== undefined).length;
+  setRxState('COMPLETE ✓');
+  setRxMsg(`Received ${cnt} / ${rxExpected} pixels`);
+  document.getElementById('imgOut').classList.add('has-img');
+  document.getElementById('rxPxCnt').textContent = `${cnt} px ✓`;
+}
+
+function stopRx() {
+  isRx = false;
+  if (rxInterval) { clearInterval(rxInterval); rxInterval = null; }
+  if (rxAnimId)   { cancelAnimationFrame(rxAnimId); rxAnimId = null; }
+  if (rxStream)   { rxStream.getTracks().forEach(t => t.stop()); rxStream = null; }
+  if (rxAudioCtx) { rxAudioCtx.close().catch(()=>{}); rxAudioCtx = null; }
+
+  document.getElementById('rxLed').className = 'led';
+  const btn = document.getElementById('btnListen');
+  btn.textContent = 'START LISTENING';
+  btn.classList.remove('stopping');
+  setRxMsg('Microphone stopped');
+  if (rxPhase !== 'DONE') setRxState('IDLE');
+}
+
+function onMicChange() {
+  if (isRx) { stopRx(); startRx(); }
+}
+
+function clearRx() {
+  rxPixels = [];
+  rxPhase  = 'IDLE';
+  setRxState('IDLE — AWAITING SYNC');
+  setRxMsg('Cleared');
+  document.getElementById('rxPxCnt').textContent = '0 px';
+  document.getElementById('imgOut').classList.remove('has-img');
+  const rc  = document.getElementById('rcvCanvas');
+  const rctx = rc.getContext('2d');
+  rctx.clearRect(0,0,rc.width,rc.height);
+  rc.style.display = 'none';
+}
+
+function saveImg() {
+  const rc = document.getElementById('rcvCanvas');
+  const a  = document.createElement('a');
+  a.download = `audiopix_${Date.now()}.png`;
+  a.href = rc.toDataURL();
+  a.click();
+}
+
+function setRxMsg(m)   { document.getElementById('rxMsg').textContent   = m; }
+function setRxState(m) { document.getElementById('rxState').textContent = m; }
+
+// ═══════════════════════════════════════════
+// RESOLUTION POPUP
+// ═══════════════════════════════════════════
+function openPop()  { document.getElementById('overlay').classList.add('open'); }
+function closePop() { document.getElementById('overlay').classList.remove('open'); }
+function overlayClick(e) { if (e.target === document.getElementById('overlay')) closePop(); }
+
+function onResChange(v) {
+  v = parseInt(v);
+  resolution = v;
+  document.getElementById('resDisp').textContent  = v;
+  document.getElementById('popNum').textContent   = v;
+
+  const px   = v * v;
+  const sec  = px * PERIOD_MS / 1000;
+  const mins = Math.floor(sec/60), secs = Math.floor(sec%60);
+  document.getElementById('popPx').textContent   = `${px.toLocaleString()} pixels`;
+  document.getElementById('popTime').textContent =
+    mins > 0 ? `~${mins}m ${secs}s transfer` : `~${secs}s transfer`;
+
+  const timeNote = v <= 16 ? 'Lightning fast' :
+                   v <= 32 ? 'Quick preview' :
+                   v <= 64 ? 'Good quality' :
+                   'High detail — be patient!';
+  document.getElementById('popNote').textContent = timeNote;
+
+  // Mini grid preview
+  const grid  = document.getElementById('popGrid');
+  const cells = Math.min(v, 10);
+  grid.style.gridTemplateColumns = `repeat(${cells},1fr)`;
+  grid.innerHTML = '';
+  for (let i = 0; i < cells*cells; i++) {
+    const d = document.createElement('div');
+    d.style.cssText = `background:hsl(${(i*137.5)%360},65%,52%);min-height:2px`;
+    grid.appendChild(d);
+  }
+
+  // Re-process image
+  if (origImg) processImg(origImg, v);
+}
+
+// ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+buildPalStrips();
+buildTxSpec();
+onResChange(32);
+enumDevices();
+animateSpec();
+</script>
+</body>
+</html>
