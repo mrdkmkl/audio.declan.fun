@@ -1,91 +1,131 @@
 'use strict';
-
-/* ════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    AUDIOPIX — app.js
-   Protocol: SYNC → HEADER(res,nColors,ms) → PIXELS → END
-   Receiver auto-configures from embedded header
-   ════════════════════════════════════════════════════ */
 
-// ─────────────────────────────────────────────────────
-//  PROTOCOL CONSTANTS
-// ─────────────────────────────────────────────────────
+   PROTOCOL:
+     1. SYNC TONE   — 180 Hz for 800 ms  (lock)
+     2. HEADER TONE — single tone where:
+          frequency = encodes resolution (1-6000)  → FREQ_LO..FREQ_HI
+          duration  = encodes toneMs    (1-200 ms) → 400..3000 ms
+     3. PIXEL DATA  — n*n tones, each toneMs long, gapped by PX_GAP ms
+     4. END TONE    — 5500 Hz for 400 ms
+
+   TX uses a SINGLE oscillator with scheduled frequency/gain changes.
+   This guarantees audio always plays regardless of color count.
+═════════════════════════════════════════════════════════════ */
+
+// ──────────────────────────────────────────
+//  PROTOCOL PARAMETERS
+// ──────────────────────────────────────────
 const P = {
-  FREQ_LO:      600,   // Hz — lowest data frequency
-  FREQ_HI:     4500,   // Hz — highest data frequency
+  FREQ_LO:   600,    // Hz — data band low
+  FREQ_HI:  4500,    // Hz — data band high
 
-  SYNC_FREQ:    185,   // Hz — sync carrier
-  SYNC_DUR:     800,   // ms — sync tone duration
+  SYNC_F:    180,    // Hz — sync carrier
+  SYNC_MS:   800,    // ms — sync duration
 
-  HDR_START_F: 5750,   // Hz — header-begin marker
-  HDR_END_F:   5650,   // Hz — header-end marker
-  END_FREQ:    5500,   // Hz — end-of-transmission
-  END_DUR:      500,   // ms
+  END_F:    5500,    // Hz — end marker
+  END_MS:    400,    // ms
 
-  HDR_SIG_DUR:  150,   // ms — marker tone length
-  HDR_VAL_DUR:  600,   // ms — each header value tone
-  GAP:           20,   // ms — silence between tones
-  PX_GAP:         3,   // ms — inter-pixel silence
+  PX_GAP:      4,    // ms — silence between pixel tones
+  PRE_GAP:    60,    // ms — silence before data starts (after header)
+  ATT:       0.005,  // s  — tone attack
+  REL:       0.005,  // s  — tone release
+
+  // Header tone duration range (encodes toneMs 1..200)
+  HDR_DUR_LO: 400,   // ms when toneMs = 1
+  HDR_DUR_HI: 3000,  // ms when toneMs = 200
+
+  // Detection thresholds
+  SYNC_TH:    55,    // magnitude threshold for sync detect
+  HDR_TH:     30,    // threshold for header tone
+  DATA_TH:    28,    // threshold for data tones
+  END_TH:     45,    // threshold for end tone
 };
 
-// Header timing offsets from when sync tone ENDS (ms)
-const H = (() => {
-  const g = P.GAP, sv = P.HDR_SIG_DUR, vv = P.HDR_VAL_DUR;
-  const SIG1_S = g;
-  const SIG1_E = g + sv;
-  const RES_S  = SIG1_E + g;
-  const RES_E  = RES_S  + vv;
-  const COL_S  = RES_E  + g;
-  const COL_E  = COL_S  + vv;
-  const TM_S   = COL_E  + g;
-  const TM_E   = TM_S   + vv;
-  const SIG2_S = TM_E   + g;
-  const SIG2_E = SIG2_S + sv;
-  const DATA_S = SIG2_E + 30;  // 30ms extra gap before pixels
-  return { SIG1_S, SIG1_E, RES_S, RES_E, COL_S, COL_E, TM_S, TM_E, SIG2_S, SIG2_E, DATA_S };
-})();
-// H.DATA_S ≈ 2230ms total header time after sync
-
-// ─────────────────────────────────────────────────────
-//  CONFIG (active) and PENDING (in popup, unapplied)
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
+//  CONFIG
+// ──────────────────────────────────────────
 const CFG = { resolution: 32, nColors: 124, timeMs: 50 };
-const PND = { ...CFG }; // pending (popup)
+const PND = { ...CFG };  // pending (popup, unapplied)
 
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
 //  STATE
-// ─────────────────────────────────────────────────────
-let mode     = 'tx';
-let palette  = [];
-let txPixels = null;
-let origImg  = null;
-let isTx     = false;
-let isRx     = false;
-let txAC     = null;   // TX AudioContext
+// ──────────────────────────────────────────
+let mode      = 'tx';
+let palette   = [];
+let txPixels  = null;
+let origImg   = null;
+let isTx      = false;
+let txAC      = null;   // TX AudioContext
 
-let rxAC     = null;   // RX AudioContext
-let rxStream = null;
-let rxAna    = null;   // AnalyserNode
-let rxFD     = null;   // Uint8Array frequency data buffer
-let rxFR     = 1;      // Hz per FFT bin
-let rxTimer  = null;   // setInterval handle
-let rxRAF    = null;   // requestAnimationFrame handle
-let curTxFreq = 0;     // current TX frequency for spectrum animation
+let isRx      = false;
+let rxAC      = null;
+let rxStream  = null;
+let rxAna     = null;
+let rxFD      = null;
+let rxFR      = 1;      // Hz/bin
+let rxTimer   = null;
+let rxRAF     = null;
 
-// RX state machine fields
-let rxPhase   = 'IDLE';  // IDLE | SYNC | HDR | DATA | DONE
-let rxSyncDet = 0;       // timestamp when sync first seen
-let rxSyncEnd = 0;       // timestamp when sync ended
-let rxSyncDB  = 0;       // debounce timestamp for sync-end
-let rxHdrBuf  = null;    // { res:[], col:[], tm:[] }
-let rxDetCFG  = null;    // { resolution, nColors, timeMs } decoded from header
-let rxDataSt  = 0;       // timestamp when pixel data started
-let rxLastPx  = -1;      // last decoded pixel index
-let rxPixels  = [];
-let rxPxCnt   = 0;
+let rxPhase      = 'IDLE';   // IDLE | SYNC | HDR | DATA | DONE
+let rxSyncDet    = 0;        // time of first sync sample
+let rxSyncGone   = 0;        // time sync first disappeared
+let rxHdrStart   = 0;        // time header tone was first detected
+let rxHdrFreqs   = [];       // sampled frequencies during header
+let rxHdrGone    = 0;        // time header tone first disappeared
+let rxDetCFG     = null;     // { resolution, nColors(unused), timeMs } decoded
+let rxManCFG     = null;     // manually-entered override
+let rxDataStart  = 0;        // time pixel data stream began
+let rxLastPx     = -1;
+let rxPixels     = [];
+let rxPxCnt      = 0;
 
-// ─────────────────────────────────────────────────────
-//  COLOUR PALETTE
-// ─────────────────────────────────────────────────────
+let curTxFreq    = 0;        // for spectrum animation
+
+// ──────────────────────────────────────────
+//  HELPERS
+// ──────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Frequency ↔ index (data band)
+function idx2freq(i, n)  { return P.FREQ_LO + (i / (n - 1)) * (P.FREQ_HI - P.FREQ_LO); }
+function freq2idx(f, n)  { return clamp(Math.round((f - P.FREQ_LO) / (P.FREQ_HI - P.FREQ_LO) * (n - 1)), 0, n - 1); }
+
+// Encode resolution into header frequency
+function res2freq(res)   { return P.FREQ_LO + ((res - 1) / 5999) * (P.FREQ_HI - P.FREQ_LO); }
+function freq2res(f)     { return clamp(Math.round(1 + ((f - P.FREQ_LO) / (P.FREQ_HI - P.FREQ_LO)) * 5999), 1, 6000); }
+
+// Encode toneMs into header duration
+function ms2hdrDur(ms)   { return P.HDR_DUR_LO + ((ms - 1) / 199) * (P.HDR_DUR_HI - P.HDR_DUR_LO); }
+function hdrDur2ms(dur)  { return clamp(Math.round(1 + ((dur - P.HDR_DUR_LO) / (P.HDR_DUR_HI - P.HDR_DUR_LO)) * 199), 1, 200); }
+
+function fmtTime(ms) {
+  if (ms < 1000)   return `${ms.toFixed(0)} ms`;
+  if (ms < 60000)  return `${(ms / 1000).toFixed(1)} s`;
+  const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000);
+  if (ms < 3600000) return s ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(ms / 3600000), rm = Math.floor((ms % 3600000) / 60000);
+  return rm ? `${h}h ${rm}m` : `${h}h`;
+}
+
+// ──────────────────────────────────────────
+//  ESTIMATION
+// ──────────────────────────────────────────
+function calcEst(res, nc, ms) {
+  const pixels  = res * res;
+  const syncMs  = P.SYNC_MS;
+  const hdrMs   = ms2hdrDur(ms);
+  const dataMs  = pixels * (ms + P.PX_GAP);
+  const endMs   = P.PRE_GAP + P.END_MS;
+  const total   = syncMs + hdrMs + P.PRE_GAP + dataMs + endMs;
+  return { pixels, syncMs, hdrMs, dataMs, endMs, total };
+}
+
+// ──────────────────────────────────────────
+//  PALETTE
+// ──────────────────────────────────────────
 function hsl2rgb(h, s, l) {
   s /= 100; l /= 100;
   const k = n => (n + h / 30) % 12;
@@ -97,195 +137,123 @@ function hsl2rgb(h, s, l) {
 function buildPalette(n) {
   palette = [];
   const chromatic = Math.max(0, n - 4);
-  // Golden-angle hue distribution across 5 lightness tiers
   const tiers = [[92,20],[85,35],[78,50],[70,65],[62,79]];
   for (let i = 0; i < chromatic; i++) {
-    const hue = (i * 137.508) % 360;
     const [s, l] = tiers[i % tiers.length];
-    palette.push(hsl2rgb(hue, s, l));
+    palette.push(hsl2rgb((i * 137.508) % 360, s, l));
   }
-  // Neutral anchors
   palette.push([10,10,12], [80,80,88], [165,165,175], [242,242,248]);
-  return palette;
 }
 
 function quantize(r, g, b) {
-  let best = 0, bestD = Infinity;
+  let best = 0, d = Infinity;
   for (let i = 0; i < palette.length; i++) {
     const [pr, pg, pb] = palette[i];
-    const d = 0.2126*(r-pr)**2 + 0.7152*(g-pg)**2 + 0.0722*(b-pb)**2;
-    if (d < bestD) { bestD = d; best = i; }
+    const dd = 0.2126*(r-pr)**2 + 0.7152*(g-pg)**2 + 0.0722*(b-pb)**2;
+    if (dd < d) { d = dd; best = i; }
   }
   return best;
 }
 
-// Frequency ↔ palette index
-function idx2freq(i, n)  { return P.FREQ_LO + (i / (n - 1)) * (P.FREQ_HI - P.FREQ_LO); }
-function freq2idx(f, n)  { return Math.max(0, Math.min(n-1, Math.round((f - P.FREQ_LO) / (P.FREQ_HI - P.FREQ_LO) * (n - 1)))); }
-
-// Header value encoding: maps a value [lo..hi] → [FREQ_LO..FREQ_HI]
-function val2freq(v, lo, hi) { return P.FREQ_LO + (v - lo) / (hi - lo) * (P.FREQ_HI - P.FREQ_LO); }
-function freq2val(f, lo, hi) { return lo + (f - P.FREQ_LO) / (P.FREQ_HI - P.FREQ_LO) * (hi - lo); }
-
-// ─────────────────────────────────────────────────────
-//  ESTIMATE HELPERS
-// ─────────────────────────────────────────────────────
-function calcEst(res, nc, ms) {
-  const pixels    = res * res;
-  const headerMs  = P.SYNC_DUR + H.DATA_S;      // ≈ 3030ms
-  const pixelMs   = pixels * (ms + P.PX_GAP);
-  const endMs     = P.GAP + P.END_DUR;
-  const totalMs   = headerMs + pixelMs + endMs;
-  return { pixels, headerMs, pixelMs, totalMs };
-}
-
-function fmtTime(ms) {
-  if (ms < 1000)        return `${ms.toFixed(0)}ms`;
-  if (ms < 60000)       return `${(ms / 1000).toFixed(1)}s`;
-  if (ms < 3600000) {
-    const m = Math.floor(ms / 60000);
-    const s = Math.floor((ms % 60000) / 1000);
-    return s ? `${m}m ${s}s` : `${m}m`;
-  }
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  return m ? `${h}h ${m}m` : `${h}h`;
-}
-
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
 //  ANIMATED BACKGROUND
-// ─────────────────────────────────────────────────────
-const bgCV = document.getElementById('bgCanvas');
+// ──────────────────────────────────────────
+const bgCV = $('bgCanvas');
 const bgCX = bgCV.getContext('2d');
-let   bgT  = 0;
+let bgT = 0;
 
-function resizeBg() {
-  bgCV.width  = window.innerWidth;
-  bgCV.height = window.innerHeight;
-}
+function resizeBg() { bgCV.width = innerWidth; bgCV.height = innerHeight; }
 resizeBg();
-window.addEventListener('resize', resizeBg);
+addEventListener('resize', resizeBg);
 
 (function animBg() {
   const W = bgCV.width, H = bgCV.height;
   bgCX.clearRect(0, 0, W, H);
-
-  const isTxMode = mode === 'tx';
-  const colFn    = isTxMode
+  const colFn = mode === 'tx'
     ? a => `rgba(255,117,53,${a})`
     : a => `rgba(0,212,200,${a})`;
-
   for (let w = 0; w < 8; w++) {
-    const phase = bgT * 0.00038 + w * 0.85;
-    const amp   = 18 + w * 15;
-    const freq  = 0.0028 + w * 0.0017;
-    const yBase = H * (0.08 + w * 0.12);
-    const env   = Math.sin(bgT * 0.00022 + w * 0.44);
-
+    const ph  = bgT * 0.00038 + w * 0.85;
+    const amp = 18 + w * 15;
+    const fq  = 0.0028 + w * 0.0017;
+    const yb  = H * (0.08 + w * 0.12);
+    const env = Math.sin(bgT * 0.00022 + w * 0.44);
     bgCX.beginPath();
-    bgCX.moveTo(0, yBase);
-    for (let x = 0; x <= W; x += 3) {
-      bgCX.lineTo(x, yBase + Math.sin(x * freq + phase) * amp * env);
-    }
+    bgCX.moveTo(0, yb);
+    for (let x = 0; x <= W; x += 3) bgCX.lineTo(x, yb + Math.sin(x * fq + ph) * amp * env);
     bgCX.strokeStyle = colFn(0.018 + w * 0.01);
-    bgCX.lineWidth   = 1;
+    bgCX.lineWidth = 1;
     bgCX.stroke();
   }
-
   bgT++;
   requestAnimationFrame(animBg);
 })();
 
-// ─────────────────────────────────────────────────────
-//  MODE SWITCHING
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
+//  MODE
+// ──────────────────────────────────────────
 function setMode(m) {
   mode = m;
   const tx = m === 'tx';
-  document.getElementById('btnTx').className    = 'mode-btn' + (tx  ? ' active-tx' : '');
-  document.getElementById('btnRx').className    = 'mode-btn' + (!tx ? ' active-rx' : '');
-  document.getElementById('txPanel').className  = 'panel tx-panel' + (tx  ? '' : ' hidden');
-  document.getElementById('rxPanel').className  = 'panel rx-panel' + (!tx ? '' : ' hidden');
+  $('btnTx').className    = 'mode-btn' + (tx  ? ' active-tx' : '');
+  $('btnRx').className    = 'mode-btn' + (!tx ? ' active-rx' : '');
+  $('txPanel').className  = 'panel tx-panel' + (tx  ? '' : ' hidden');
+  $('rxPanel').className  = 'panel rx-panel' + (!tx ? '' : ' hidden');
 }
 
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
 //  DEVICE ENUMERATION
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
 async function enumDevices() {
-  // Prompt for permission first so labels populate
-  try {
-    const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
-    tmp.getTracks().forEach(t => t.stop());
-  } catch (_) { /* ignore */ }
+  try { const t = await navigator.mediaDevices.getUserMedia({audio:true}); t.getTracks().forEach(t=>t.stop()); } catch(_) {}
+  const devs = await navigator.mediaDevices.enumerateDevices().catch(() => []);
 
-  const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
-
-  // Speakers
-  const spkSel = document.getElementById('spkSel');
+  const spkSel = $('spkSel');
   spkSel.innerHTML = '<option value="">Default Speaker</option>';
-  devices.filter(d => d.kind === 'audiooutput').forEach((d, i) => {
-    spkSel.add(new Option(d.label || `Speaker ${i + 1}`, d.deviceId));
-  });
-  spkSel.addEventListener('change', () => setBadge('spkBadge', spkSel));
-  setBadge('spkBadge', spkSel);
+  devs.filter(d => d.kind === 'audiooutput').forEach((d, i) => spkSel.add(new Option(d.label || `Speaker ${i+1}`, d.deviceId)));
+  spkSel.addEventListener('change', () => badge('spkBadge', spkSel));
+  badge('spkBadge', spkSel);
 
-  // Microphones
-  const micSel = document.getElementById('micSel');
+  const micSel = $('micSel');
   micSel.innerHTML = '';
-  devices.filter(d => d.kind === 'audioinput').forEach((d, i) => {
-    micSel.add(new Option(d.label || `Microphone ${i + 1}`, d.deviceId));
-  });
-  micSel.addEventListener('change', () => setBadge('micBadge', micSel));
-  setBadge('micBadge', micSel);
+  devs.filter(d => d.kind === 'audioinput').forEach((d, i) => micSel.add(new Option(d.label || `Mic ${i+1}`, d.deviceId)));
+  micSel.addEventListener('change', () => badge('micBadge', micSel));
+  badge('micBadge', micSel);
 }
 
-function setBadge(id, sel) {
-  const lbl = sel.options[sel.selectedIndex]?.text || '—';
-  document.getElementById(id).textContent = lbl.length > 18 ? lbl.slice(0, 16) + '…' : lbl;
+function badge(id, sel) {
+  const l = sel.options[sel.selectedIndex]?.text || '—';
+  $(id).textContent = l.length > 18 ? l.slice(0, 16) + '…' : l;
 }
 
-function onMicChange() {
-  if (isRx) { stopRx(); startRx(); }
-}
+function onMicChange() { if (isRx) { stopRx(); startRx(); } }
 
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
 //  IMAGE LOADING
-// ─────────────────────────────────────────────────────
-const dropZone  = document.getElementById('dropZone');
-const fileInput = document.getElementById('fileInput');
-const prevCV    = document.getElementById('previewCanvas');
-const prevCX    = prevCV.getContext('2d');
+// ──────────────────────────────────────────
+const dropZone = $('dropZone');
+const fileInEl = $('fileInput');
+const prevCV   = $('previewCanvas');
+const prevCX   = prevCV.getContext('2d');
 
-dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('dragover', e => {
-  e.preventDefault();
-  dropZone.classList.add('drag-over');
-});
-dropZone.addEventListener('dragleave', e => {
-  if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over');
-});
+dropZone.addEventListener('click', () => fileInEl.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', e => { if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over'); });
 dropZone.addEventListener('drop', e => {
-  e.preventDefault();
-  dropZone.classList.remove('drag-over');
+  e.preventDefault(); dropZone.classList.remove('drag-over');
   const f = e.dataTransfer.files[0];
   if (f && f.type.startsWith('image/')) loadFile(f);
 });
-fileInput.addEventListener('change', e => {
-  if (e.target.files[0]) loadFile(e.target.files[0]);
-});
+fileInEl.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
 
 function loadFile(file) {
-  const reader = new FileReader();
-  reader.onload = ev => {
+  const rd = new FileReader();
+  rd.onload = ev => {
     const img = new Image();
-    img.onload = () => {
-      origImg = img;
-      renderPreview(img);
-      processImage(img, CFG.resolution, CFG.nColors);
-    };
+    img.onload = () => { origImg = img; renderPreview(img); processImage(img, CFG.resolution, CFG.nColors); };
     img.src = ev.target.result;
   };
-  reader.readAsDataURL(file);
+  rd.readAsDataURL(file);
 }
 
 function renderPreview(img) {
@@ -300,139 +268,200 @@ function renderPreview(img) {
 
 function processImage(img, res, nc) {
   buildPalette(nc);
-
-  const oc  = document.createElement('canvas');
-  oc.width  = oc.height = res;
-  const ox  = oc.getContext('2d');
+  const oc = Object.assign(document.createElement('canvas'), { width: res, height: res });
+  const ox = oc.getContext('2d');
   ox.drawImage(img, 0, 0, res, res);
   const dat = ox.getImageData(0, 0, res, res).data;
-
   txPixels = new Uint8Array(res * res);
-  for (let i = 0; i < res * res; i++) {
-    txPixels[i] = quantize(dat[i * 4], dat[i * 4 + 1], dat[i * 4 + 2]);
-  }
+  for (let i = 0; i < res * res; i++) txPixels[i] = quantize(dat[i*4], dat[i*4+1], dat[i*4+2]);
 
-  document.getElementById('btnTransmit').disabled = false;
-  document.getElementById('dropInfo').textContent =
-    `${res}×${res} · ${(res * res).toLocaleString()} pixels · ${nc} colors`;
-  setTxMsg(`Ready — ${(res * res).toLocaleString()} px`);
+  $('btnTransmit').disabled = false;
+  $('btnPreview').disabled  = false;
+  $('dropInfo').textContent = `${res}×${res} · ${(res*res).toLocaleString()} px · ${nc} colors`;
+  setTxMsg(`Ready — ${(res*res).toLocaleString()} pixels`);
 }
 
-// ─────────────────────────────────────────────────────
-//  TRANSMITTER
-// ─────────────────────────────────────────────────────
-function toggleTx() { isTx ? stopTx() : startTx(); }
+// ──────────────────────────────────────────
+//  PREVIEW MODAL
+// ──────────────────────────────────────────
+function showPreview() {
+  if (!txPixels || !origImg) return;
+  const res = CFG.resolution;
 
-async function startTx() {
+  // Original thumb (scaled down)
+  const DISP = 240;
+  const sc   = Math.min(DISP / origImg.width, DISP / origImg.height);
+  const ow   = Math.round(origImg.width * sc);
+  const oh   = Math.round(origImg.height * sc);
+  const origC = $('origThumb');
+  origC.width = ow; origC.height = oh;
+  origC.style.width  = ow + 'px';
+  origC.style.height = oh + 'px';
+  origC.getContext('2d').drawImage(origImg, 0, 0, ow, oh);
+
+  // Quantized thumb — render at 1px/pixel then scale via CSS
+  const qtC = $('quantThumb');
+  qtC.width  = res; qtC.height = res;
+  const disp = Math.min(DISP, Math.max(80, res * Math.floor(DISP / res)));
+  qtC.style.width  = disp + 'px';
+  qtC.style.height = disp + 'px';
+  const qtX = qtC.getContext('2d');
+  for (let i = 0; i < txPixels.length; i++) {
+    const x = i % res, y = Math.floor(i / res);
+    const [r, g, b] = palette[txPixels[i]] || [0, 0, 0];
+    qtX.fillStyle = `rgb(${r},${g},${b})`;
+    qtX.fillRect(x, y, 1, 1);
+  }
+
+  const est = calcEst(res, CFG.nColors, CFG.timeMs);
+  $('prevMeta').textContent =
+    `${res}×${res} px  ·  ${CFG.nColors} colors  ·  ${CFG.timeMs}ms/tone  ·  ${fmtTime(est.total)} total`;
+  $('prevOverlay').classList.remove('hidden');
+}
+
+function closePreview()    { $('prevOverlay').classList.add('hidden'); }
+function closePrevOverlay(e) { if (e.target === $('prevOverlay')) closePreview(); }
+
+// ──────────────────────────────────────────
+//  TRANSMITTER — single oscillator
+// ──────────────────────────────────────────
+async function handleTransmitClick() {
+  if (isTx) { stopTx(); return; }
+
+  if (!txPixels) return;
+
+  // Show "loading" for 2 s so browser can finish any pending renders / audio init
+  const btn = $('btnTransmit');
+  btn.disabled = true;
+  $('btnPreview').disabled = true;
+
+  const pctEl = $('progPct');
+  pctEl.textContent = 'LOADING';
+  pctEl.classList.add('loading');
+  setTxMsg('Processing…');
+  $('progDetail').textContent = 'Preparing transmission…';
+
+  // Re-process image with current CFG (ensures txPixels is fresh)
+  if (origImg) processImage(origImg, CFG.resolution, CFG.nColors);
+
+  await new Promise(r => setTimeout(r, 2000));
+
+  pctEl.classList.remove('loading');
+  btn.disabled = false;
+  $('btnPreview').disabled = false;
+
+  startTx();
+}
+
+function startTx() {
   if (!txPixels) return;
   isTx = true;
 
-  const res   = CFG.resolution;
-  const nc    = CFG.nColors;
-  const toneS = CFG.timeMs / 1000;
-  const gapS  = P.PX_GAP   / 1000;
+  const res    = CFG.resolution;
+  const nc     = CFG.nColors;
+  const toneS  = CFG.timeMs / 1000;
+  const gapS   = P.PX_GAP / 1000;
+  const attS   = P.ATT;
+  const relS   = P.REL;
 
-  elById('btnTransmit').textContent = 'STOP TX';
-  elById('btnTransmit').classList.add('stopping');
-  elById('txLed').className = 'led on-tx';
+  const btn = $('btnTransmit');
+  btn.textContent = 'STOP TX';
+  btn.classList.add('stopping');
+  $('txLed').className = 'led on-tx';
   setTxMsg('Initialising audio…');
 
   try {
     txAC = new (window.AudioContext || window.webkitAudioContext)();
 
-    // Try setting output device
-    const spkId = elById('spkSel').value;
-    if (spkId && txAC.setSinkId) await txAC.setSinkId(spkId).catch(() => {});
+    const spkId = $('spkSel').value;
+    if (spkId && txAC.setSinkId) txAC.setSinkId(spkId).catch(() => {});
 
+    // Master gain
     const master = txAC.createGain();
     master.gain.value = 0.88;
     master.connect(txAC.destination);
 
-    // Schedule a single sine-wave tone with smooth attack/release
-    function tone(freq, t0, durS, vol = 1) {
-      const osc = txAC.createOscillator();
-      const g   = txAC.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      osc.connect(g);
-      g.connect(master);
+    // ── Single oscillator ──
+    const osc  = txAC.createOscillator();
+    const gain = txAC.createGain();
+    osc.type = 'sine';
+    osc.connect(gain);
+    gain.connect(master);
+    gain.gain.setValueAtTime(0, 0);  // start silent
 
-      const att = 0.005, rel = 0.005;
-      const dur = Math.max(att + rel + 0.001, durS);
-      g.gain.setValueAtTime(0, t0);
-      g.gain.linearRampToValueAtTime(vol, t0 + att);
-      g.gain.setValueAtTime(vol, t0 + dur - rel);
-      g.gain.linearRampToValueAtTime(0, t0 + dur);
-      osc.start(t0);
-      osc.stop(t0 + dur + 0.015);
+    // Helper: schedule one "note" on the single osc
+    function note(freq, t0, durS, vol) {
+      const dur = Math.max(attS + relS + 0.002, durS);
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(vol, t0 + attS);
+      gain.gain.setValueAtTime(vol, t0 + dur - relS);
+      gain.gain.linearRampToValueAtTime(0, t0 + dur);
     }
 
     let t = txAC.currentTime + 0.06;
     const txStart = t;
 
-    // ── SYNC ──
-    tone(P.SYNC_FREQ, t, P.SYNC_DUR / 1000, 0.9);
-    t += P.SYNC_DUR / 1000 + P.GAP / 1000;
+    // 1. SYNC
+    note(P.SYNC_F, t, P.SYNC_MS / 1000, 0.9);
+    t += P.SYNC_MS / 1000;
 
-    // ── HEADER START MARKER ──
-    tone(P.HDR_START_F, t, P.HDR_SIG_DUR / 1000, 0.72);
-    t += P.HDR_SIG_DUR / 1000 + P.GAP / 1000;
+    // 2. HEADER TONE: freq=res, dur=toneMs
+    const hdrFreq = res2freq(res);
+    const hdrDurS = ms2hdrDur(CFG.timeMs) / 1000;
+    note(hdrFreq, t, hdrDurS, 0.78);
+    t += hdrDurS;
 
-    // ── HEADER VALUES: resolution, nColors, timeMs ──
-    tone(val2freq(res,          1,   6000), t, P.HDR_VAL_DUR / 1000, 0.76);
-    t += P.HDR_VAL_DUR / 1000 + P.GAP / 1000;
-    tone(val2freq(nc,           32,  300),  t, P.HDR_VAL_DUR / 1000, 0.76);
-    t += P.HDR_VAL_DUR / 1000 + P.GAP / 1000;
-    tone(val2freq(CFG.timeMs,   1,   200),  t, P.HDR_VAL_DUR / 1000, 0.76);
-    t += P.HDR_VAL_DUR / 1000 + P.GAP / 1000;
-
-    // ── HEADER END MARKER ──
-    tone(P.HDR_END_F, t, P.HDR_SIG_DUR / 1000, 0.72);
-    t += P.HDR_SIG_DUR / 1000 + 0.030; // 30ms data gap
-
+    // 3. Pre-data gap
+    t += P.PRE_GAP / 1000;
     const dataStart = t;
 
-    // ── PIXEL DATA ──
+    // 4. PIXELS — schedule all at once using single osc parameter automation
     for (let i = 0; i < txPixels.length; i++) {
-      tone(idx2freq(txPixels[i], nc), t, toneS, 0.86);
+      const freq = idx2freq(txPixels[i], nc);
+      note(freq, t, toneS, 0.86);
       t += toneS + gapS;
     }
 
-    // ── END TONE ──
-    t += P.GAP / 1000;
-    tone(P.END_FREQ, t, P.END_DUR / 1000, 0.72);
-    t += P.END_DUR / 1000;
+    // 5. END
+    t += P.PX_GAP / 1000;
+    note(P.END_F, t, P.END_MS / 1000, 0.72);
+    t += P.END_MS / 1000;
 
     const totalDur = t - txStart;
+    osc.start(txAC.currentTime);
+    osc.stop(t + 0.1);
 
     startTxSpec();
+    setTxMsg('Transmitting…');
 
-    // RAF-based progress tracking (no setInterval needed — AudioContext clock is perfect)
     function trackProgress() {
       if (!isTx) return;
       const now = txAC.currentTime;
       const el  = now - txStart;
-      const pct = Math.min(el / totalDur, 1);
+      const pct = clamp(el / totalDur, 0, 1);
 
-      // Figure out current pixel for spectrum
-      const pxEl  = now - dataStart;
+      // Update spectrum frequency indicator
+      const pxEl   = now - dataStart;
       const period = toneS + gapS;
       const pxIdx  = Math.floor(pxEl / period);
       if (pxEl > 0 && pxIdx >= 0 && pxIdx < txPixels.length) {
         curTxFreq = idx2freq(txPixels[pxIdx], nc);
-      } else if (el < P.SYNC_DUR / 1000) {
-        curTxFreq = P.SYNC_FREQ;
+      } else if (el < P.SYNC_MS / 1000) {
+        curTxFreq = P.SYNC_F;
+      } else if (el < P.SYNC_MS / 1000 + hdrDurS) {
+        curTxFreq = hdrFreq;
       } else {
         curTxFreq = 0;
       }
 
       setProgress(pct);
 
-      const remMs = Math.max(0, (totalDur - el) * 1000);
-      const doneN = Math.max(0, Math.min(pxIdx, txPixels.length));
-      elById('progDetail').textContent = pct < 1
+      const remMs  = Math.max(0, (totalDur - el) * 1000);
+      const doneN  = Math.max(0, Math.min(pxIdx, txPixels.length));
+      $('progDetail').textContent = pct < 1
         ? `${doneN.toLocaleString()} / ${txPixels.length.toLocaleString()} px — ${fmtTime(remMs)} left`
-        : 'Transmission complete ✓';
+        : 'Complete ✓';
       setTxMsg(pct < 1 ? 'Transmitting…' : 'Done ✓');
 
       if (pct < 1) requestAnimationFrame(trackProgress);
@@ -440,7 +469,7 @@ async function startTx() {
     }
     requestAnimationFrame(trackProgress);
 
-  } catch (err) {
+  } catch(err) {
     setTxMsg(`Error: ${err.message}`);
     finishTx(false);
   }
@@ -454,35 +483,36 @@ function stopTx() {
 }
 
 function finishTx(ok) {
-  isTx      = false;
-  curTxFreq = 0;
+  isTx = false; curTxFreq = 0;
   stopTxSpec();
   if (txAC && ok) { txAC.close().catch(() => {}); txAC = null; }
-  elById('btnTransmit').textContent = 'TRANSMIT';
-  elById('btnTransmit').classList.remove('stopping');
-  elById('txLed').className = 'led';
+  const btn = $('btnTransmit');
+  btn.textContent = 'TRANSMIT';
+  btn.classList.remove('stopping');
+  btn.disabled = false;
+  $('btnPreview').disabled = !txPixels;
+  $('txLed').className = 'led';
   if (!ok) setProgress(0);
 }
 
 function setProgress(p) {
   const pct = Math.round(p * 100);
-  elById('progFill').style.width = `${pct}%`;
-  elById('progPct').textContent  = p > 0 ? `${pct}%` : '—';
+  $('progFill').style.width = `${pct}%`;
+  $('progPct').textContent  = (p > 0 && !$('progPct').classList.contains('loading')) ? `${pct}%` : $('progPct').textContent;
 }
 
-function setTxMsg(m) { elById('txStatus').textContent = m; }
+function setTxMsg(m) { $('txStatus').textContent = m; }
 
-// TX Spectrum animation
-const N_BARS  = 54;
+// TX Spectrum
+const N_BARS = 54;
 let txSpecRAF = null;
 
 function buildSpecBars() {
-  const c = elById('specBars');
+  const c = $('specBars');
   c.innerHTML = '';
   for (let i = 0; i < N_BARS; i++) {
     const b = document.createElement('div');
-    b.className = 'spec-bar';
-    b.id = `sb${i}`;
+    b.className = 'spec-bar'; b.id = `sb${i}`;
     c.appendChild(b);
   }
 }
@@ -492,14 +522,14 @@ function startTxSpec() {
     for (let i = 0; i < N_BARS; i++) {
       const f    = P.FREQ_LO + (i / (N_BARS - 1)) * (P.FREQ_HI - P.FREQ_LO);
       const dist = Math.abs(f - curTxFreq);
-      const span = (P.FREQ_HI - P.FREQ_LO) / 8;
+      const span = (P.FREQ_HI - P.FREQ_LO) / 7;
       const iten = Math.max(0, 1 - dist / span);
-      const noise = isTx ? (Math.random() * 4) : 0;
-      const h    = Math.max(2, iten * 40 + noise);
+      const h    = Math.max(2, iten * 40 + (isTx ? Math.random() * 3 : 0));
       const el   = document.getElementById(`sb${i}`);
-      if (!el) continue;
-      el.style.height     = `${h}px`;
-      el.style.background = `rgba(255,117,53,${0.18 + iten * 0.80})`;
+      if (el) {
+        el.style.height     = `${h}px`;
+        el.style.background = `rgba(255,117,53,${0.18 + iten * 0.80})`;
+      }
     }
     txSpecRAF = requestAnimationFrame(frame);
   }
@@ -509,16 +539,27 @@ function startTxSpec() {
 
 function stopTxSpec() {
   if (txSpecRAF) { cancelAnimationFrame(txSpecRAF); txSpecRAF = null; }
-  document.querySelectorAll('.spec-bar').forEach(b => {
-    b.style.height = '2px';
-    b.style.background = 'rgba(255,117,53,0.18)';
-  });
+  document.querySelectorAll('.spec-bar').forEach(b => { b.style.height = '2px'; b.style.background = 'rgba(255,117,53,.18)'; });
 }
 
-// ─────────────────────────────────────────────────────
+// Idle spectrum shimmer
+(function idleSpec() {
+  if (!isTx) {
+    for (let i = 0; i < N_BARS; i++) {
+      const b = document.getElementById(`sb${i}`);
+      if (b && !b.style.height.startsWith('4')) {
+        const h = 2 + Math.sin(Date.now() * 0.0018 + i * 0.42) * 1.2;
+        b.style.height = `${h}px`;
+      }
+    }
+  }
+  requestAnimationFrame(idleSpec);
+})();
+
+// ──────────────────────────────────────────
 //  RECEIVER
-// ─────────────────────────────────────────────────────
-const rxSpecCV = document.getElementById('rxSpecCanvas');
+// ──────────────────────────────────────────
+const rxSpecCV = $('rxSpecCanvas');
 const rxSpecCX = rxSpecCV.getContext('2d');
 
 function resizeRxSpec() {
@@ -526,26 +567,21 @@ function resizeRxSpec() {
   rxSpecCV.height = rxSpecCV.parentElement.offsetHeight || 88;
 }
 resizeRxSpec();
-window.addEventListener('resize', resizeRxSpec);
+addEventListener('resize', resizeRxSpec);
 
 function toggleRx() { isRx ? stopRx() : startRx(); }
 
 async function startRx() {
-  const micId = elById('micSel').value;
+  const micId = $('micSel').value;
   try {
     rxStream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        deviceId:          micId ? { exact: micId } : undefined,
-        echoCancellation:  false,
-        noiseSuppression:  false,
-        autoGainControl:   false,
-        sampleRate:        48000,
+        deviceId:         micId ? { exact: micId } : undefined,
+        echoCancellation: false, noiseSuppression: false,
+        autoGainControl: false, sampleRate: 48000,
       }
     });
-  } catch (err) {
-    setRxMsg(`Microphone error: ${err.message}`);
-    return;
-  }
+  } catch(e) { setRxMsg(`Mic error: ${e.message}`); return; }
 
   rxAC  = new (window.AudioContext || window.webkitAudioContext)();
   const src = rxAC.createMediaStreamSource(rxStream);
@@ -559,439 +595,431 @@ async function startRx() {
   isRx = true;
   resetRxState();
 
-  elById('btnListen').textContent = 'STOP';
-  elById('btnListen').classList.add('stopping');
-  elById('rxLed').className = 'led on-rx';
-  setRxMsg('Scanning for sync signal…');
+  $('btnListen').textContent = 'STOP';
+  $('btnListen').classList.add('stopping');
+  $('rxLed').className = 'led on-rx';
+  setRxMsg('Scanning for signal…');
   setRxPhase('IDLE — AWAITING SYNC', 'Listening on selected microphone');
 
   rxTimer = setInterval(rxTick, 2);
-  drawRxSpectrum();
+  drawRxSpec();
 }
 
 function stopRx() {
   isRx = false;
-  if (rxTimer)  { clearInterval(rxTimer);        rxTimer  = null; }
-  if (rxRAF)    { cancelAnimationFrame(rxRAF);   rxRAF    = null; }
+  clearInterval(rxTimer);   rxTimer = null;
+  cancelAnimationFrame(rxRAF); rxRAF = null;
   if (rxStream) { rxStream.getTracks().forEach(t => t.stop()); rxStream = null; }
-  if (rxAC)     { rxAC.close().catch(() => {});  rxAC     = null; }
-
-  elById('btnListen').textContent = 'START LISTENING';
-  elById('btnListen').classList.remove('stopping');
-  elById('rxLed').className = 'led';
+  if (rxAC)    { rxAC.close().catch(() => {}); rxAC = null; }
+  $('btnListen').textContent = 'START LISTENING';
+  $('btnListen').classList.remove('stopping');
+  $('rxLed').className = 'led';
   setRxMsg('Stopped');
 }
 
 function resetRxState() {
-  rxPhase   = 'IDLE';
-  rxSyncDet = 0;
-  rxSyncEnd = 0;
-  rxSyncDB  = 0;
-  rxHdrBuf  = { res: [], col: [], tm: [] };
-  rxDetCFG  = null;
-  rxDataSt  = 0;
-  rxLastPx  = -1;
-  rxPixels  = [];
-  rxPxCnt   = 0;
+  rxPhase     = 'IDLE';
+  rxSyncDet   = 0;
+  rxSyncGone  = 0;
+  rxHdrStart  = 0;
+  rxHdrFreqs  = [];
+  rxHdrGone   = 0;
+  rxDetCFG    = null;
+  rxDataStart = 0;
+  rxLastPx    = -1;
+  rxPixels    = [];
+  rxPxCnt     = 0;
 }
 
 function clearRx() {
   resetRxState();
   setRxPhase('IDLE — AWAITING SYNC', 'Cleared');
   setRxMsg('Cleared');
-  elById('rxPixelCount').textContent = '0 px';
-  elById('imgOutput').className = 'img-output';
-  elById('autoDetail').textContent = 'Awaiting header…';
-  const rc  = elById('rxCanvas');
+  $('rxPixelCount').textContent = '0 px';
+  $('imgOutput').className = 'img-output';
+  $('autoDetail').textContent = 'Awaiting header…';
+  const rc = $('rxCanvas');
   rc.getContext('2d').clearRect(0, 0, rc.width, rc.height);
   rc.style.display = 'none';
+}
+
+// ── Manual override ──
+function toggleManual() {
+  const body = $('manualBody');
+  const sec  = body.parentElement;
+  const open = !body.classList.contains('hidden');
+  body.classList.toggle('hidden', open);
+  sec.classList.toggle('open', !open);
+  $('manualChevron').textContent = open ? '▾' : '▴';
+}
+
+function applyManual() {
+  const sz  = parseInt($('manSize').value);
+  const tm  = parseInt($('manTone').value);
+
+  if (!sz || sz < 1 || sz > 6000) {
+    $('manualStatus').textContent = '⚠ Enter a size between 1 and 6000';
+    $('manualStatus').classList.remove('active');
+    return;
+  }
+  if (!tm || tm < 1 || tm > 200) {
+    $('manualStatus').textContent = '⚠ Enter a tone duration between 1 and 200';
+    $('manualStatus').classList.remove('active');
+    return;
+  }
+
+  rxManCFG = { resolution: sz, timeMs: tm };
+
+  // If we're currently in DATA or DONE phase, apply immediately by resetting data
+  if (rxPhase === 'DATA' || rxPhase === 'HDR') {
+    rxDetCFG    = { ...rxManCFG };
+    rxDataStart = performance.now();
+    rxLastPx    = -1;
+    rxPixels    = [];
+    rxPxCnt     = 0;
+    setupRxCanvas(sz);
+    setRxPhase(`RECEIVING — ${sz}×${sz}`, `Manual · ${tm}ms/px`);
+    setRxMsg(`Receiving ${(sz*sz).toLocaleString()} pixels…`);
+    $('imgOutput').classList.remove('has-img');
+  }
+
+  $('manualStatus').textContent = `✓ Set: ${sz}×${sz} px · ${tm}ms/tone — will use on next sync or now`;
+  $('manualStatus').classList.add('active');
+  $('autoDetail').textContent   = `Manual: ${sz}×${sz} · ${tm}ms`;
 }
 
 // ── FFT helpers ──
 function refreshFD() { rxAna.getByteFrequencyData(rxFD); }
 
-function peakInRange(fLo, fHi) {
+function peakIn(fLo, fHi) {
   const b0 = Math.max(0, Math.floor(fLo / rxFR));
   const b1 = Math.min(rxFD.length - 1, Math.ceil(fHi / rxFR));
   let maxM = 0, maxB = b0;
-  for (let i = b0; i <= b1; i++) {
-    if (rxFD[i] > maxM) { maxM = rxFD[i]; maxB = i; }
-  }
+  for (let i = b0; i <= b1; i++) { if (rxFD[i] > maxM) { maxM = rxFD[i]; maxB = i; } }
   return { freq: maxB * rxFR, mag: maxM };
 }
 
-function medianOf(arr) {
-  if (!arr.length) return P.FREQ_LO + (P.FREQ_HI - P.FREQ_LO) / 2;
-  const s = [...arr].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+function median(arr) {
+  if (!arr.length) return (P.FREQ_LO + P.FREQ_HI) / 2;
+  const s = [...arr].sort((a,b)=>a-b), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
 }
 
-// ── RX State machine (called every 2ms) ──
+// ── State machine ──
 function rxTick() {
   if (!rxAna) return;
   const now = performance.now();
   refreshFD();
 
+  // ── IDLE: wait for sync ──
   if (rxPhase === 'IDLE') {
-    const pk = peakInRange(P.SYNC_FREQ - 38, P.SYNC_FREQ + 38);
-    if (pk.mag > 65) {
+    const pk = peakIn(P.SYNC_F - 40, P.SYNC_F + 40);
+    if (pk.mag > P.SYNC_TH) {
       if (!rxSyncDet) rxSyncDet = now;
       if (now - rxSyncDet > 80) {
         rxPhase = 'SYNC';
-        rxSyncDB = 0;
-        setRxPhase('SYNC DETECTED', 'Carrier locked — waiting for header…');
-        setRxMsg('Sync tone detected');
+        rxSyncGone = 0;
+        setRxPhase('SYNC DETECTED', 'Carrier locked — awaiting header tone');
+        setRxMsg('Sync tone active');
       }
-    } else {
-      rxSyncDet = 0;
-    }
+    } else { rxSyncDet = 0; }
+    return;
+  }
 
-  } else if (rxPhase === 'SYNC') {
-    const pk = peakInRange(P.SYNC_FREQ - 38, P.SYNC_FREQ + 38);
-    if (pk.mag < 42) {
-      if (!rxSyncDB) rxSyncDB = now;
-      if (now - rxSyncDB > 35) {
-        rxPhase   = 'HDR';
-        rxSyncEnd = now;
-        rxHdrBuf  = { res: [], col: [], tm: [] };
-        setRxPhase('READING HEADER', 'Decoding resolution, colors, tone duration…');
+  // ── SYNC: wait for sync to end ──
+  if (rxPhase === 'SYNC') {
+    const pk = peakIn(P.SYNC_F - 40, P.SYNC_F + 40);
+    if (pk.mag < P.SYNC_TH - 12) {
+      if (!rxSyncGone) rxSyncGone = now;
+      if (now - rxSyncGone > 30) {
+        rxPhase    = 'HDR';
+        rxHdrStart = 0;
+        rxHdrFreqs = [];
+        rxHdrGone  = 0;
+        setRxPhase('READING HEADER', 'Measuring frequency & duration of header tone');
         setRxMsg('Header in progress…');
       }
+    } else { rxSyncGone = 0; }
+    return;
+  }
+
+  // ── HDR: detect single header tone, measure freq + duration ──
+  if (rxPhase === 'HDR') {
+    const pk = peakIn(P.FREQ_LO - 30, P.FREQ_HI + 30);
+
+    if (!rxHdrStart) {
+      // Waiting for header tone to begin
+      if (pk.mag > P.HDR_TH) {
+        rxHdrStart = now;
+        rxHdrFreqs = [pk.freq];
+      }
     } else {
-      rxSyncDB = 0;
+      // Header tone is in progress
+      if (pk.mag > P.HDR_TH) {
+        // Still active — collect samples
+        rxHdrGone = 0;
+        rxHdrFreqs.push(pk.freq);
+      } else {
+        // Maybe ending — debounce
+        if (!rxHdrGone) rxHdrGone = now;
+        if (now - rxHdrGone > 25) {
+          // Header tone ended — decode
+          const durMs  = rxHdrGone - rxHdrStart;
+          const medF   = median(rxHdrFreqs);
+          const detRes = freq2res(medF);
+          const detTm  = hdrDur2ms(durMs);
+
+          // Prefer manual config if set
+          const useCFG = rxManCFG
+            ? { ...rxManCFG }
+            : { resolution: detRes, timeMs: clamp(detTm, 1, 200) };
+
+          rxDetCFG  = useCFG;
+          buildPalette(CFG.nColors);  // use current palette (color count not in header)
+          setupRxCanvas(useCFG.resolution);
+
+          rxPhase     = 'DATA';
+          rxDataStart = now + P.PRE_GAP;   // data starts after pre-gap
+          rxLastPx    = -1;
+
+          const lbl = rxManCFG
+            ? `${useCFG.resolution}×${useCFG.resolution} (manual) · ${useCFG.timeMs}ms`
+            : `${useCFG.resolution}×${useCFG.resolution} · ${useCFG.timeMs}ms/px`;
+          setRxPhase(`RECEIVING — ${useCFG.resolution}×${useCFG.resolution}`, lbl);
+          setRxMsg(`Receiving ${(useCFG.resolution * useCFG.resolution).toLocaleString()} pixels…`);
+          $('autoDetail').textContent = lbl;
+        }
+      }
     }
+    return;
+  }
 
-  } else if (rxPhase === 'HDR') {
-    const t = now - rxSyncEnd;
-
-    // Sample each value tone during its central 60% window
-    const RES_SAMPLE_LO = H.RES_S + P.HDR_VAL_DUR * 0.20;
-    const RES_SAMPLE_HI = H.RES_S + P.HDR_VAL_DUR * 0.80;
-    const COL_SAMPLE_LO = H.COL_S + P.HDR_VAL_DUR * 0.20;
-    const COL_SAMPLE_HI = H.COL_S + P.HDR_VAL_DUR * 0.80;
-    const TM_SAMPLE_LO  = H.TM_S  + P.HDR_VAL_DUR * 0.20;
-    const TM_SAMPLE_HI  = H.TM_S  + P.HDR_VAL_DUR * 0.80;
-
-    const dataFreqPk = peakInRange(P.FREQ_LO - 30, P.FREQ_HI + 30);
-
-    if (t >= RES_SAMPLE_LO && t < RES_SAMPLE_HI && dataFreqPk.mag > 28)
-      rxHdrBuf.res.push(dataFreqPk.freq);
-    if (t >= COL_SAMPLE_LO && t < COL_SAMPLE_HI && dataFreqPk.mag > 28)
-      rxHdrBuf.col.push(dataFreqPk.freq);
-    if (t >= TM_SAMPLE_LO  && t < TM_SAMPLE_HI  && dataFreqPk.mag > 28)
-      rxHdrBuf.tm.push(dataFreqPk.freq);
-
-    if (t >= H.DATA_S) {
-      // Decode header using median of all samples
-      const detRes = clamp(Math.round(freq2val(medianOf(rxHdrBuf.res), 1, 6000)),   1,   6000);
-      const detCol = clamp(Math.round(freq2val(medianOf(rxHdrBuf.col), 32, 300)),   32,  300);
-      const detTm  = clamp(Math.round(freq2val(medianOf(rxHdrBuf.tm),  1, 200)),    1,   200);
-
-      rxDetCFG = { resolution: detRes, nColors: detCol, timeMs: detTm };
-      buildPalette(detCol);
-      setupRxCanvas(detRes);
-
-      rxPhase  = 'DATA';
-      rxDataSt = now;
-      rxLastPx = -1;
-
-      const lbl = `${detRes}×${detRes} · ${detCol}c · ${detTm}ms/px`;
-      setRxPhase(`RECEIVING — ${detRes}×${detRes}`, `${detCol} colors · ${detTm}ms/px`);
-      setRxMsg(`Receiving ${(detRes * detRes).toLocaleString()} pixels…`);
-      elById('autoDetail').textContent = lbl;
-    }
-
-  } else if (rxPhase === 'DATA') {
-    const cfg    = rxDetCFG;
-    const period = cfg.timeMs + P.PX_GAP;
-    const elapsed = now - rxDataSt;
+  // ── DATA: receive pixel tones ──
+  if (rxPhase === 'DATA') {
+    const cfg     = rxDetCFG;
+    const period  = cfg.timeMs + P.PX_GAP;
+    const elapsed = now - rxDataStart;
+    if (elapsed < 0) return;  // still in pre-gap
 
     // Check for end tone (above data band)
-    const endPk = peakInRange(P.END_FREQ - 130, P.END_FREQ + 130);
-    if (endPk.mag > 55 && endPk.freq > 5300) {
-      finishRxData();
-      return;
-    }
+    const endPk = peakIn(P.END_F - 150, P.END_F + 150);
+    if (endPk.mag > P.END_TH && endPk.freq > 5200) { finishRxData(); return; }
 
-    const pxIdx  = Math.floor(elapsed / period);
-    const pxOff  = elapsed % period;
-    const total  = cfg.resolution * cfg.resolution;
+    const total   = cfg.resolution * cfg.resolution;
+    const pxIdx   = Math.floor(elapsed / period);
+    const pxOff   = elapsed % period;
+    const lo      = cfg.timeMs * 0.25;
+    const hi      = cfg.timeMs * 0.76;
 
-    // Sample in central portion of the tone window
-    const sampleLo = cfg.timeMs * 0.28;
-    const sampleHi = cfg.timeMs * 0.74;
-
-    if (pxOff >= sampleLo && pxOff <= sampleHi && pxIdx !== rxLastPx && pxIdx < total) {
+    if (pxOff >= lo && pxOff <= hi && pxIdx !== rxLastPx && pxIdx < total) {
       rxLastPx = pxIdx;
-      const dataPk = peakInRange(P.FREQ_LO - 60, P.FREQ_HI + 60);
-      if (dataPk.mag > 30) {
-        const ci = freq2idx(dataPk.freq, cfg.nColors);
+      const pk = peakIn(P.FREQ_LO - 50, P.FREQ_HI + 50);
+      if (pk.mag > P.DATA_TH) {
+        const ci = freq2idx(pk.freq, CFG.nColors);
         rxPixels[pxIdx] = ci;
         drawRxPixel(pxIdx, ci, cfg.resolution);
         rxPxCnt++;
-        elById('rxPixelCount').textContent = `${rxPxCnt} / ${total.toLocaleString()} px`;
+        $('rxPixelCount').textContent = `${rxPxCnt} / ${total.toLocaleString()} px`;
       }
     }
-
     if (pxIdx >= total) finishRxData();
   }
 }
 
 function finishRxData() {
   rxPhase = 'DONE';
-  const total = rxDetCFG ? rxDetCFG.resolution * rxDetCFG.resolution : 0;
+  const total = rxDetCFG ? rxDetCFG.resolution ** 2 : 0;
   setRxPhase('COMPLETE ✓', `${rxPxCnt.toLocaleString()} of ${total.toLocaleString()} pixels received`);
-  setRxMsg(`Received ${rxPxCnt.toLocaleString()} px`);
-  elById('imgOutput').classList.add('has-img');
+  setRxMsg(`Done — ${rxPxCnt.toLocaleString()} px received`);
+  $('imgOutput').classList.add('has-img');
 }
 
 function setupRxCanvas(res) {
-  const rc  = elById('rxCanvas');
-  rc.width  = res;
-  rc.height = res;
+  const rc = $('rxCanvas');
+  rc.width = rc.height = res;
   const rcx = rc.getContext('2d');
-  rcx.fillStyle = '#000';
+  rcx.fillStyle = '#060B18';
   rcx.fillRect(0, 0, res, res);
-  rc.style.display  = 'block';
-  rc.style.imageRendering = 'pixelated';
+  rc.style.display = 'block';
 }
 
 function drawRxPixel(idx, ci, res) {
-  const rc  = elById('rxCanvas');
-  const rcx = rc.getContext('2d');
-  const x   = idx % res;
-  const y   = Math.floor(idx / res);
+  const rc = $('rxCanvas');
   const [r, g, b] = palette[ci] || [0, 0, 0];
-  rcx.fillStyle = `rgb(${r},${g},${b})`;
-  rcx.fillRect(x, y, 1, 1);
+  const ctx = rc.getContext('2d');
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.fillRect(idx % res, Math.floor(idx / res), 1, 1);
 }
 
 function saveImg() {
-  const rc = elById('rxCanvas');
-  const a  = document.createElement('a');
-  a.download = `audiopix_${Date.now()}.png`;
-  a.href = rc.toDataURL('image/png');
-  a.click();
+  const rc = $('rxCanvas');
+  Object.assign(document.createElement('a'), {
+    download: `audiopix_${Date.now()}.png`,
+    href: rc.toDataURL('image/png'),
+  }).click();
 }
 
-function setRxMsg(m)           { elById('rxStatus').textContent    = m; }
-function setRxPhase(lbl, sub)  {
-  elById('rxPhaseLabel').textContent = lbl;
-  elById('rxPhaseSub').textContent   = sub || '';
-}
+function setRxMsg(m)          { $('rxStatus').textContent   = m; }
+function setRxPhase(lbl, sub) { $('rxPhaseLabel').textContent = lbl; $('rxPhaseSub').textContent = sub || ''; }
 
-// ── RX Spectrum display ──
-function drawRxSpectrum() {
+// RX spectrum drawing
+function drawRxSpec() {
   if (!isRx || !rxAna) return;
   rxAna.getByteFrequencyData(rxFD);
-
-  const W    = rxSpecCV.width, H = rxSpecCV.height;
+  const W = rxSpecCV.width, H = rxSpecCV.height;
   rxSpecCX.fillStyle = 'rgba(0,0,0,0.4)';
   rxSpecCX.fillRect(0, 0, W, H);
 
-  const maxFreq = 6600;
-  const maxBin  = Math.floor(maxFreq / rxFR);
-  const nBars   = Math.min(maxBin, Math.floor(W / 1.5));
-  const bw      = W / nBars;
-  const nc      = (rxDetCFG || CFG).nColors;
+  const maxF  = 6600;
+  const maxB  = Math.floor(maxF / rxFR);
+  const nBars = Math.min(maxB, Math.floor(W / 1.5));
+  const bw    = W / nBars;
+  const nc    = CFG.nColors;
 
   for (let i = 0; i < nBars; i++) {
-    const bin  = Math.floor(i * maxBin / nBars);
+    const bin  = Math.floor(i * maxB / nBars);
     const mag  = rxFD[Math.min(bin, rxFD.length - 1)];
     const bh   = (mag / 255) * H;
     const freq = bin * rxFR;
 
     let col;
-    if (Math.abs(freq - P.SYNC_FREQ) < 40) {
-      // SYNC tone — yellow
-      const a = 0.5 + mag / 512;
-      col = `rgba(255,220,0,${a})`;
-    } else if (freq > 5400 && freq < 5850) {
-      // Control tones — magenta
-      const a = 0.45 + mag / 512;
-      col = `rgba(220,0,255,${a})`;
+    if (Math.abs(freq - P.SYNC_F) < 42) {
+      col = `rgba(80,200,255,${0.5 + mag/512})`;
+    } else if (freq > 5200 && freq < 5800) {
+      col = `rgba(200,80,255,${0.45 + mag/512})`;
     } else if (freq >= P.FREQ_LO && freq <= P.FREQ_HI) {
-      // Data band — actual palette colour
-      const ci      = freq2idx(freq, nc);
-      const [r,g,b] = palette[ci] || [0, 200, 200];
-      const a       = 0.55 + mag / 640;
-      col = `rgba(${r},${g},${b},${a})`;
+      const ci = freq2idx(freq, nc);
+      const [r, g, b] = palette[ci] || [0, 200, 200];
+      col = `rgba(${r},${g},${b},${0.55 + mag/640})`;
     } else {
-      // Below/above band — dim teal
-      const a = 0.12 + mag / 1200;
-      col = `rgba(0,212,200,${a})`;
+      col = `rgba(0,212,200,${0.10 + mag/1400})`;
     }
-
     rxSpecCX.fillStyle = col;
-    rxSpecCX.fillRect(~~(i * bw), H - bh, Math.max(1, bw - 0.4), bh);
+    rxSpecCX.fillRect(~~(i * bw), H - bh, Math.max(1, bw - 0.5), bh);
   }
-
-  rxRAF = requestAnimationFrame(drawRxSpectrum);
+  rxRAF = requestAnimationFrame(drawRxSpec);
 }
 
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
 //  CONTROLS POPUP
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
 function openControls() {
-  // Sync pending to current config
   PND.resolution = CFG.resolution;
   PND.nColors    = CFG.nColors;
   PND.timeMs     = CFG.timeMs;
-
-  elById('colSlider').value = CFG.nColors;
-  elById('resSlider').value = resToSlider(CFG.resolution);
-  elById('tmSlider').value  = CFG.timeMs;
-
-  updatePopupUI();
-  elById('overlay').classList.remove('hidden');
+  $('colSlider').value = CFG.nColors;
+  $('resSlider').value = resToSlider(CFG.resolution);
+  $('tmSlider').value  = CFG.timeMs;
+  updatePopup();
+  $('overlay').classList.remove('hidden');
 }
 
-function closeControls() {
-  elById('overlay').classList.add('hidden');
-}
+function closeControls() { $('overlay').classList.add('hidden'); }
 
-function overlayClick(e) {
-  if (e.target === elById('overlay')) closeControls();
-}
+function overlayClick(e) { if (e.target === $('overlay')) closeControls(); }
 
 function applySettings() {
   CFG.resolution = PND.resolution;
   CFG.nColors    = PND.nColors;
   CFG.timeMs     = PND.timeMs;
-
   buildPalette(CFG.nColors);
   if (origImg) processImage(origImg, CFG.resolution, CFG.nColors);
-  updatePalStrip(CFG.nColors);
+  refreshPalStrip(CFG.nColors);
   updateBadge();
   closeControls();
 }
 
-// Logarithmic slider for resolution (1–6000)
 function sliderToRes(v) { return Math.max(1, Math.min(6000, Math.round(Math.pow(6000, v / 100)))); }
 function resToSlider(r) { return Math.round(Math.log(Math.max(1, r)) / Math.log(6000) * 100); }
 
-function onColChange(v) { PND.nColors    = parseInt(v);           updatePopupUI(); }
-function onResChange(v) { PND.resolution = sliderToRes(parseFloat(v)); updatePopupUI(); }
-function onTmChange(v)  { PND.timeMs     = parseInt(v);           updatePopupUI(); }
+function onColChange(v) { PND.nColors    = parseInt(v);             updatePopup(); }
+function onResChange(v) { PND.resolution = sliderToRes(parseFloat(v)); updatePopup(); }
+function onTmChange(v)  { PND.timeMs     = parseInt(v);             updatePopup(); }
 
-function updatePopupUI() {
+function updatePopup() {
   const { resolution: res, nColors: nc, timeMs: tm } = PND;
 
-  // Value labels
-  elById('colVal').textContent = `${nc}`;
-  elById('resVal').textContent = `${res}×${res}`;
-  elById('tmVal').textContent  = `${tm}ms`;
+  $('colVal').textContent = `${nc}`;
+  $('resVal').textContent = `${res}×${res}`;
+  $('tmVal').textContent  = `${tm}ms`;
 
-  // Palette swatch strip
-  buildPopPalette(nc);
-
-  // Resolution grid preview
-  buildResGrid(res);
-  elById('resStats').textContent = `${(res * res).toLocaleString()} pixels`;
-
-  // Speed bar
-  const speedPct = (tm / 200) * 100;
-  elById('speedFill').style.width = `${speedPct}%`;
-  elById('speedLabel').textContent =
-    tm <= 10 ? 'Ultrafast' :
-    tm <= 25 ? 'Fast' :
-    tm <= 60 ? 'Normal' :
-    tm <= 120 ? 'Slow' : 'Very slow';
-
-  // Estimate
-  const { pixels, headerMs, pixelMs, totalMs } = calcEst(res, nc, tm);
-
-  elById('estPx').textContent    = pixels.toLocaleString();
-  elById('estHdr').textContent   = fmtTime(headerMs);
-  elById('estTotal').textContent = fmtTime(totalMs);
-
-  elById('estNote').textContent =
-    totalMs > 18000000 ? '⚠ Multi-hour transfer' :
-    totalMs >  3600000 ? '⏳ Multi-hour transfer' :
-    totalMs >   600000 ? '☕ Coffee break needed' :
-    totalMs >    60000 ? '⏱ Minutes to complete' :
-    totalMs >    10000 ? '⚡ Under a minute' :
-                          '🚀 Super fast!';
-
-  // Timeline bar (header vs pixels)
-  if (totalMs > 0) {
-    const hPct = Math.max(4, (headerMs / totalMs) * 100);
-    const pPct = Math.max(0, 100 - hPct);
-    elById('etlHdr').style.width = `${hPct}%`;
-    elById('etlPix').style.width = `${pPct}%`;
-  }
-}
-
-function buildPopPalette(n) {
-  buildPalette(n);
-  const el = elById('palPreview');
-  el.innerHTML = '';
-  palette.forEach(([r, g, b]) => {
+  // Palette swatch
+  buildPalette(nc);
+  const pp = $('palPreview');
+  pp.innerHTML = '';
+  palette.forEach(([r,g,b]) => {
     const s = document.createElement('div');
     s.className = 'pal-swatch';
     s.style.background = `rgb(${r},${g},${b})`;
-    el.appendChild(s);
+    pp.appendChild(s);
   });
-}
 
-function buildResGrid(res) {
-  const g = elById('resGrid');
-  const n = Math.min(res, 14);
-  g.style.gridTemplateColumns = `repeat(${n},1fr)`;
-  g.innerHTML = '';
+  // Res grid
+  const rg = $('resGrid');
+  const n  = Math.min(res, 14);
+  rg.style.gridTemplateColumns = `repeat(${n},1fr)`;
+  rg.innerHTML = '';
   for (let i = 0; i < n * n; i++) {
     const d = document.createElement('div');
     d.className = 'res-grid-cell';
-    d.style.background = `hsl(${(i * 137.508) % 360},62%,${30 + (i % 5) * 10}%)`;
-    g.appendChild(d);
+    d.style.background = `hsl(${(i*137.508)%360},60%,${30+(i%5)*10}%)`;
+    rg.appendChild(d);
+  }
+  $('resStats').textContent = `${(res*res).toLocaleString()} pixels`;
+
+  // Speed bar
+  $('speedFill').style.width = `${(tm / 200) * 100}%`;
+  $('speedLabel').textContent =
+    tm <=  8 ? 'Ultrafast' : tm <= 20 ? 'Fast' :
+    tm <= 60 ? 'Normal'    : tm <=120 ? 'Slow' : 'Very slow';
+
+  // Estimate
+  const { pixels, syncMs, hdrMs, dataMs, endMs, total } = calcEst(res, nc, tm);
+
+  $('estPx').textContent    = pixels.toLocaleString();
+  $('estHdr').textContent   = fmtTime(syncMs + hdrMs);
+  $('estTotal').textContent = fmtTime(total);
+
+  $('estNote').textContent =
+    total > 18000000 ? '⚠ Multi-hour transfer!'  :
+    total >  3600000 ? '⏳ Hours to complete'     :
+    total >   600000 ? '☕ Coffee break needed'   :
+    total >    60000 ? '⏱ Under ' + Math.ceil(total/60000) + ' min' :
+    total >    10000 ? '⚡ Under a minute'        :
+                       '🚀 Super fast!';
+
+  // Timeline (flex proportions)
+  if (total > 0) {
+    $('etlSync').style.flex = syncMs;
+    $('etlHdr').style.flex  = hdrMs;
+    $('etlData').style.flex = dataMs;
+    $('etlEnd').style.flex  = endMs;
   }
 }
 
-function updatePalStrip(n) {
+function refreshPalStrip(n) {
   buildPalette(n);
-  const strip = elById('palStripTx');
+  const strip = $('palStripTx');
   strip.innerHTML = '';
-  palette.forEach(([r, g, b]) => {
+  palette.forEach(([r,g,b]) => {
     const s = document.createElement('div');
     s.className = 'pal-sw';
     s.style.background = `rgb(${r},${g},${b})`;
     strip.appendChild(s);
   });
-  elById('palCountTx').textContent = `${n} colors`;
+  $('palCountTx').textContent = `${n} colors`;
 }
 
 function updateBadge() {
-  elById('settingsBadge').textContent =
-    `${CFG.resolution}px · ${CFG.nColors}c · ${CFG.timeMs}ms`;
+  $('settingsBadge').textContent = `${CFG.resolution}px · ${CFG.nColors}c · ${CFG.timeMs}ms`;
 }
 
-// ─────────────────────────────────────────────────────
-//  UTILITY
-// ─────────────────────────────────────────────────────
-function elById(id)         { return document.getElementById(id); }
-function clamp(v, lo, hi)   { return Math.max(lo, Math.min(hi, v)); }
-
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
 //  INIT
-// ─────────────────────────────────────────────────────
+// ──────────────────────────────────────────
 buildPalette(CFG.nColors);
 buildSpecBars();
-updatePalStrip(CFG.nColors);
+refreshPalStrip(CFG.nColors);
 updateBadge();
-updatePopupUI();
+updatePopup();
 enumDevices();
-
-// Keep idle spectrum bars gently animated
-(function idleSpecAnim() {
-  if (!isTx) {
-    for (let i = 0; i < N_BARS; i++) {
-      const b = document.getElementById(`sb${i}`);
-      if (b) {
-        const h = 2 + Math.sin(Date.now() * 0.002 + i * 0.4) * 1.5;
-        b.style.height = `${h}px`;
-      }
-    }
-  }
-  requestAnimationFrame(idleSpecAnim);
-})();
