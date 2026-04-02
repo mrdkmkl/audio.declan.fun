@@ -859,3 +859,191 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--bor2); border-radius: 100px; }
 ::selection { background: rgba(255,117,53,.3); }
+/* ════════════════════════════
+   TX CODE BANNER
+   ════════════════════════════ */
+.tx-code-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap;
+  background: rgba(255,117,53,.06); border: 1px solid rgba(255,117,53,.22);
+  border-radius: var(--r); padding: 14px 18px;
+  position: relative; overflow: hidden;
+}
+.tx-code-banner::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(120deg, rgba(255,117,53,.05) 0%, transparent 60%);
+  pointer-events: none;
+}
+.code-banner-left {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+}
+.code-eyebrow {
+  font-family: var(--f-m); font-size: 8px; letter-spacing: .36em;
+  color: rgba(255,117,53,.55); text-transform: uppercase;
+}
+.rx-eyebrow { color: rgba(0,212,200,.55); }
+.code-value {
+  font-family: var(--f-m); font-size: 22px; font-weight: 700;
+  letter-spacing: .18em; color: var(--tx);
+  text-shadow: 0 0 22px rgba(255,117,53,.55);
+  line-height: 1; word-break: break-all;
+}
+.code-sub {
+  font-family: var(--f-m); font-size: 8px; letter-spacing: .08em;
+  color: var(--muted);
+}
+
+.btn-copy-code {
+  display: flex; align-items: center; gap: 7px; flex-shrink: 0;
+  background: rgba(255,117,53,.12); border: 1px solid rgba(255,117,53,.32);
+  border-radius: 9px; padding: 9px 15px;
+  color: var(--tx); font-family: var(--f-d); font-size: 8.5px;
+  font-weight: 700; letter-spacing: .18em; cursor: pointer;
+  transition: all .22s;
+}
+.btn-copy-code:hover {
+  background: rgba(255,117,53,.22); box-shadow: 0 0 14px rgba(255,117,53,.3);
+  transform: translateY(-1px);
+}
+.btn-copy-code.copied {
+  background: rgba(0,212,200,.14); border-color: rgba(0,212,200,.35);
+  color: var(--rx);
+}
+
+/* ════════════════════════════
+   RX CODE BAR
+   ════════════════════════════ */
+.rx-code-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.rx-code-inner {
+  display: flex; flex-direction: column; gap: 3px;
+}
+.rx-code-val {
+  font-family: var(--f-m); font-size: 17px; font-weight: 700;
+  letter-spacing: .14em; color: var(--rx);
+  text-shadow: 0 0 16px rgba(0,212,200,.4);
+}
+
+.btn-change-code {
+  flex-shrink: 0;
+  background: rgba(0,212,200,.1); border: 1px solid rgba(0,212,200,.28);
+  border-radius: 9px; padding: 7px 14px;
+  color: var(--rx); font-family: var(--f-d); font-size: 8.5px;
+  font-weight: 700; letter-spacing: .15em; cursor: pointer;
+  transition: all .22s;
+}
+.btn-change-code:hover {
+  background: rgba(0,212,200,.2); box-shadow: 0 0 12px rgba(0,212,200,.25);
+}
+
+/* ════════════════════════════
+   PAUSE BUTTON
+   ════════════════════════════ */
+.btn-pause-ctrl {
+  background: rgba(255,255,255,.05); border: 1px solid var(--bor2);
+  border-radius: var(--r); padding: 11px 18px; flex-shrink: 0;
+  color: var(--muted); font-family: var(--f-d); font-size: 9.5px;
+  font-weight: 700; letter-spacing: .14em; cursor: pointer;
+  transition: all .22s;
+}
+.btn-pause-ctrl:hover:not(:disabled) {
+  background: rgba(255,255,255,.1); color: var(--text);
+  border-color: rgba(255,255,255,.25);
+}
+.btn-pause-ctrl:disabled { opacity: .28; cursor: not-allowed; }
+.btn-pause-ctrl.active {
+  background: rgba(255,210,0,.12); border-color: rgba(255,210,0,.4);
+  color: #FFD200;
+}
+.btn-pause-ctrl.rx-pause:hover:not(:disabled) {
+  border-color: rgba(0,212,200,.3); color: var(--rx);
+  background: rgba(0,212,200,.08);
+}
+.btn-pause-ctrl.rx-pause.active {
+  background: rgba(255,210,0,.1); border-color: rgba(255,210,0,.38);
+  color: #FFD200;
+}
+
+/* ════════════════════════════
+   CODE ENTRY POPUP
+   ════════════════════════════ */
+.code-entry-popup {
+  background: #0C1124; border: 1px solid var(--bor2);
+  border-radius: 26px 26px 0 0;
+  padding: 32px 28px 44px;
+  width: 100%; max-width: 520px;
+  display: flex; flex-direction: column; gap: 20px;
+  animation: slideUp .38s cubic-bezier(.4,0,.2,1) both;
+}
+
+.code-entry-desc {
+  font-family: var(--f-m); font-size: 9.5px; line-height: 1.8;
+  color: var(--muted); letter-spacing: .04em;
+}
+
+.code-input-wrap {
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+.code-input {
+  background: rgba(0,0,0,.55); border: 1.5px solid var(--bor2);
+  border-radius: 12px; padding: 14px 18px;
+  color: var(--rx); font-family: var(--f-m); font-size: 22px;
+  font-weight: 700; letter-spacing: .22em; outline: none; width: 100%;
+  text-transform: uppercase; text-align: center;
+  transition: border-color .2s, box-shadow .2s;
+}
+.code-input::placeholder {
+  color: rgba(255,255,255,.12); letter-spacing: .18em; font-size: 18px;
+}
+.code-input:focus {
+  border-color: rgba(0,212,200,.55);
+  box-shadow: 0 0 0 3px rgba(0,212,200,.1), 0 0 20px rgba(0,212,200,.08);
+}
+.code-input.valid {
+  border-color: rgba(0,212,200,.7);
+  color: var(--rx); text-shadow: 0 0 14px rgba(0,212,200,.4);
+}
+.code-input.invalid {
+  border-color: rgba(255,60,80,.5);
+  color: rgba(255,100,120,.9);
+}
+
+.code-input-status {
+  font-family: var(--f-m); font-size: 9px; letter-spacing: .1em;
+  text-align: center; min-height: 14px;
+  transition: all .2s;
+}
+.code-input-status.ok   { color: var(--rx); }
+.code-input-status.err  { color: rgba(255,80,100,.85); }
+
+.code-decoded-preview {
+  background: rgba(0,212,200,.06); border: 1px solid rgba(0,212,200,.18);
+  border-radius: var(--r); padding: 12px 16px;
+  font-family: var(--f-m); font-size: 9.5px; letter-spacing: .1em;
+  color: var(--rx); line-height: 1.8; display: none; text-align: center;
+}
+.code-decoded-preview.visible { display: block; }
+
+/* ════════════════════════════
+   SETTINGS CODE PREVIEW
+   ════════════════════════════ */
+.settings-code-preview {
+  background: rgba(255,117,53,.06); border: 1px solid rgba(255,117,53,.18);
+  border-radius: var(--r); padding: 14px 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.settings-code-val {
+  font-family: var(--f-m); font-size: 24px; font-weight: 700;
+  letter-spacing: .22em; color: var(--tx);
+  text-shadow: 0 0 18px rgba(255,117,53,.45);
+}
+
+/* ════════════════════════════
+   LED PAUSED STATE
+   ════════════════════════════ */
+.led.on-tx.paused, .led.on-rx.paused {
+  animation: ledSlowBlink 1.8s ease-in-out infinite;
+}
+@keyframes ledSlowBlink { 0%,100%{opacity:1} 50%{opacity:.15} }
