@@ -70,6 +70,22 @@
         </div>
       </div>
 
+      <!-- Transfer Code Banner -->
+      <div class="tx-code-banner">
+        <div class="code-banner-left">
+          <span class="code-eyebrow">TRANSFER CODE</span>
+          <div class="code-value" id="txCodeDisplay">—</div>
+          <span class="code-sub">Share this code with the receiving computer</span>
+        </div>
+        <button class="btn-copy-code" id="btnCopyCode" onclick="copyCode()">
+          <svg viewBox="0 0 14 14" fill="none" width="11" height="11">
+            <rect x="1" y="4" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+            <path d="M4 4V2.5A1.5 1.5 0 0 1 5.5 1H11.5A1.5 1.5 0 0 1 13 2.5V8.5A1.5 1.5 0 0 1 11.5 10H10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+          COPY
+        </button>
+      </div>
+
       <!-- Speaker selector -->
       <div class="device-row">
         <span class="device-icon">🔊</span>
@@ -128,6 +144,9 @@
           </svg>
           PREVIEW
         </button>
+        <button class="btn-pause-ctrl" id="btnPauseTx" disabled onclick="togglePauseTx()">
+          ⏸ PAUSE
+        </button>
         <button class="btn-primary tx" id="btnTransmit" disabled onclick="handleTransmitClick()">
           TRANSMIT
         </button>
@@ -148,9 +167,13 @@
           <span class="panel-eyebrow rx">RECEIVER</span>
           <h2 class="panel-h2">Signal Input</h2>
         </div>
-        <div class="rx-auto-info">
-          <span class="auto-badge">AUTO-CONFIG</span>
-          <span class="auto-detail" id="autoDetail">Awaiting header…</span>
+        <!-- Code display on RX side -->
+        <div class="rx-code-bar">
+          <div class="rx-code-inner">
+            <span class="code-eyebrow rx-eyebrow">CODE</span>
+            <span class="rx-code-val" id="rxCodeVal">—</span>
+          </div>
+          <button class="btn-change-code" onclick="showCodeEntry()">CHANGE</button>
         </div>
       </div>
 
@@ -176,42 +199,9 @@
       <div class="rx-state-row">
         <div class="rx-phase-wrap">
           <div class="rx-phase-label" id="rxPhaseLabel">IDLE</div>
-          <div class="rx-phase-sub"   id="rxPhaseSub">Awaiting sync signal</div>
+          <div class="rx-phase-sub"   id="rxPhaseSub">Enter a transfer code to begin</div>
         </div>
         <div class="rx-pixel-count" id="rxPixelCount">0 px</div>
-      </div>
-
-      <!-- MANUAL OVERRIDE -->
-      <div class="manual-section">
-        <button class="manual-toggle" id="manualToggle" onclick="toggleManual()">
-          <svg viewBox="0 0 12 12" fill="none" width="10" height="10">
-            <path d="M2 3h8M4 6h4M5 9h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-          </svg>
-          MANUAL OVERRIDE
-          <span class="manual-chevron" id="manualChevron">▾</span>
-        </button>
-        <div class="manual-body hidden" id="manualBody">
-          <p class="manual-desc">
-            Bypass header — enter the known size and tone duration to receive directly.
-            Use if the image finishes too early or the header fails.
-          </p>
-          <div class="manual-inputs">
-            <div class="manual-field">
-              <label class="manual-lbl">SIZE (px²)</label>
-              <input class="manual-input" type="number" id="manSize"
-                     placeholder="32" min="1" max="6000" step="1">
-              <span class="manual-unit">px</span>
-            </div>
-            <div class="manual-field">
-              <label class="manual-lbl">TONE</label>
-              <input class="manual-input" type="number" id="manTone"
-                     placeholder="50" min="1" max="200" step="1">
-              <span class="manual-unit">ms</span>
-            </div>
-            <button class="btn-manual-apply" onclick="applyManual()">USE</button>
-          </div>
-          <div class="manual-status" id="manualStatus">No manual config set</div>
-        </div>
       </div>
 
       <!-- Received image -->
@@ -233,6 +223,9 @@
       </div>
 
       <div class="action-row">
+        <button class="btn-pause-ctrl rx-pause" id="btnPauseRx" disabled onclick="togglePauseRx()">
+          ⏸ PAUSE
+        </button>
         <button class="btn-primary rx" id="btnListen" onclick="toggleRx()">
           START LISTENING
         </button>
@@ -241,12 +234,55 @@
 
       <div class="status-bar">
         <div class="led" id="rxLed"></div>
-        <span id="rxStatus">Microphone not active</span>
+        <span id="rxStatus">Enter a transfer code first</span>
       </div>
 
     </section>
   </div><!-- /.app -->
 
+
+  <!-- ═══════════════════ CODE ENTRY POPUP ═══════════════════ -->
+  <div class="overlay hidden" id="codeOverlay" onclick="codeOverlayClick(event)">
+    <div class="code-entry-popup">
+
+      <div class="popup-head">
+        <div>
+          <div class="popup-eyebrow">RECEIVER SETUP</div>
+          <h3 class="popup-title" style="color:var(--rx)">Enter Transfer Code</h3>
+        </div>
+        <button class="btn-close" onclick="closeCodeEntry()">
+          <svg viewBox="0 0 12 12" fill="none" width="12" height="12">
+            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <p class="code-entry-desc">
+        Enter the 9-character code displayed on the transmitting computer.
+        The code contains image size, color depth, and tone speed — no manual settings needed.
+      </p>
+
+      <div class="code-input-wrap">
+        <input
+          class="code-input"
+          id="codeInput"
+          placeholder="XXXX-XXXX-X"
+          maxlength="11"
+          autocomplete="off"
+          spellcheck="false"
+          oninput="formatCodeInput(this)"
+          onkeydown="if(event.key==='Enter') submitCode()"
+        >
+        <div class="code-input-status" id="codeInputStatus"></div>
+      </div>
+
+      <div class="code-decoded-preview" id="codeDecodedPreview"></div>
+
+      <button class="btn-apply" id="btnSubmitCode" onclick="submitCode()">
+        CONNECT &amp; CONFIGURE
+      </button>
+    </div>
+  </div>
 
   <!-- ═══════════════════ CONTROLS POPUP ═══════════════════ -->
   <div class="overlay hidden" id="overlay" onclick="overlayClick(event)">
@@ -306,7 +342,7 @@
         <div class="ctrl-head">
           <div>
             <div class="ctrl-label">Tone Duration</div>
-            <div class="ctrl-desc">ms per pixel · 50 = normal · also encodes in header</div>
+            <div class="ctrl-desc">ms per pixel · 50 = normal · encoded in transfer code</div>
           </div>
           <div class="ctrl-val-big" id="tmVal">50ms</div>
         </div>
@@ -333,7 +369,7 @@
           </div>
           <div class="est-card">
             <div class="est-val" id="estHdr">—</div>
-            <div class="est-lbl">Header Time</div>
+            <div class="est-lbl">Start Signal</div>
           </div>
           <div class="est-card">
             <div class="est-val accent" id="estTotal">—</div>
@@ -342,13 +378,18 @@
         </div>
         <div class="est-timeline">
           <div class="etl-seg etl-sync" id="etlSync"></div>
-          <div class="etl-seg etl-hdr"  id="etlHdr"></div>
           <div class="etl-seg etl-data" id="etlData"></div>
           <div class="etl-seg etl-end"  id="etlEnd"></div>
         </div>
         <div class="est-timeline-labels">
-          <span>Sync</span><span>Header</span><span>Data</span><span>End</span>
+          <span>Start</span><span>Data</span><span>End</span>
         </div>
+      </div>
+
+      <!-- Live code preview -->
+      <div class="settings-code-preview">
+        <span class="code-eyebrow" style="color:var(--tx)">CODE PREVIEW</span>
+        <div class="settings-code-val" id="settingsCodeVal">—</div>
       </div>
 
       <button class="btn-apply" onclick="applySettings()">APPLY &amp; CLOSE</button>
