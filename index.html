@@ -70,21 +70,32 @@
         </div>
       </div>
 
-      <!-- Transfer Code Banner -->
-      <div class="tx-code-banner">
-        <div class="code-banner-left">
-          <span class="code-eyebrow">TRANSFER CODE</span>
-          <div class="code-value" id="txCodeDisplay">—</div>
-          <span class="code-sub">Share this code with the receiving computer</span>
+      <!-- Code + Pair block -->
+      <div class="code-pair-block">
+        <div class="tx-code-banner">
+          <div class="code-banner-left">
+            <span class="code-eyebrow">TRANSFER CODE</span>
+            <div class="code-value" id="txCodeDisplay">—</div>
+            <span class="code-sub">Share this code with the receiving computer</span>
+          </div>
+          <button class="btn-copy-code" id="btnCopyCode" onclick="copyCode()">
+            <svg viewBox="0 0 14 14" fill="none" width="11" height="11">
+              <rect x="1" y="4" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M4 4V2.5A1.5 1.5 0 0 1 5.5 1H11.5A1.5 1.5 0 0 1 13 2.5V8.5A1.5 1.5 0 0 1 11.5 10H10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+            COPY
+          </button>
         </div>
-        <button class="btn-copy-code" id="btnCopyCode" onclick="copyCode()">
-          <svg viewBox="0 0 14 14" fill="none" width="11" height="11">
-            <rect x="1" y="4" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
-            <path d="M4 4V2.5A1.5 1.5 0 0 1 5.5 1H11.5A1.5 1.5 0 0 1 13 2.5V8.5A1.5 1.5 0 0 1 11.5 10H10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-          </svg>
-          COPY
-        </button>
+        <!-- Pair status row -->
+        <div class="pair-status-row" id="txPairRow">
+          <div class="pair-dot" id="txPairDot"></div>
+          <span class="pair-status-label" id="txPairLabel">Waiting for receiver…</span>
+          <span class="pair-chip" id="txPairChip"></span>
+        </div>
       </div>
+
+      <!-- Active mode tags -->
+      <div class="active-mode-tags" id="txModeTags"></div>
 
       <!-- Speaker selector -->
       <div class="device-row">
@@ -100,18 +111,14 @@
         <div class="drop-inner" id="dropInner">
           <div class="drop-icon-wrap">
             <div class="drop-rings">
-              <div class="ring r1"></div>
-              <div class="ring r2"></div>
-              <div class="ring r3"></div>
+              <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
             </div>
             <span class="drop-glyph">🖼</span>
           </div>
           <p class="drop-title">Drop Image Here</p>
           <p class="drop-sub">or click to browse · any format</p>
         </div>
-        <div class="drop-info-bar">
-          <span id="dropInfo">—</span>
-        </div>
+        <div class="drop-info-bar"><span id="dropInfo">—</span></div>
       </div>
 
       <!-- Progress -->
@@ -128,7 +135,7 @@
         </div>
       </div>
 
-      <!-- Spectrum visualiser -->
+      <!-- Spectrum -->
       <div class="spec-section">
         <span class="spec-label">LIVE SPECTRUM</span>
         <div class="spec-bars" id="specBars"></div>
@@ -138,18 +145,13 @@
       <div class="action-row">
         <button class="btn-preview" id="btnPreview" disabled onclick="showPreview()">
           <svg viewBox="0 0 14 14" fill="none" width="12" height="12">
-            <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4Z"
-                  stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+            <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
             <circle cx="7" cy="7" r="1.8" fill="currentColor"/>
           </svg>
           PREVIEW
         </button>
-        <button class="btn-pause-ctrl" id="btnPauseTx" disabled onclick="togglePauseTx()">
-          ⏸ PAUSE
-        </button>
-        <button class="btn-primary tx" id="btnTransmit" disabled onclick="handleTransmitClick()">
-          TRANSMIT
-        </button>
+        <button class="btn-pause-ctrl" id="btnPauseTx" disabled onclick="togglePauseTx()">⏸ PAUSE</button>
+        <button class="btn-primary tx" id="btnTransmit" disabled onclick="handleTransmitClick()">TRANSMIT</button>
       </div>
 
       <div class="status-bar">
@@ -167,15 +169,36 @@
           <span class="panel-eyebrow rx">RECEIVER</span>
           <h2 class="panel-h2">Signal Input</h2>
         </div>
-        <!-- Code display on RX side -->
         <div class="rx-code-bar">
           <div class="rx-code-inner">
-            <span class="code-eyebrow rx-eyebrow">CODE</span>
+            <span class="code-eyebrow rx-eyebrow">PAIRED CODE</span>
             <span class="rx-code-val" id="rxCodeVal">—</span>
           </div>
           <button class="btn-change-code" onclick="showCodeEntry()">CHANGE</button>
         </div>
       </div>
+
+      <!-- RX pair status -->
+      <div class="pair-status-row rx-pair" id="rxPairRow">
+        <div class="pair-dot" id="rxPairDot"></div>
+        <span class="pair-status-label" id="rxPairLabel">Waiting for transmitter…</span>
+        <span class="pair-chip" id="rxPairChip"></span>
+      </div>
+
+      <!-- TX Mirror — live status from paired TX -->
+      <div class="tx-mirror hidden" id="txMirror">
+        <div class="mirror-head">
+          <span class="mirror-eyebrow">TX LIVE STATUS</span>
+          <span class="mirror-status-chip" id="mirrorChip">IDLE</span>
+        </div>
+        <div class="mirror-track">
+          <div class="mirror-fill" id="mirrorFill"></div>
+        </div>
+        <div class="mirror-detail" id="mirrorDetail">Waiting for transmission…</div>
+      </div>
+
+      <!-- Active mode tags -->
+      <div class="active-mode-tags rx-mode-tags" id="rxModeTags"></div>
 
       <!-- Mic selector -->
       <div class="device-row">
@@ -189,9 +212,9 @@
       <div class="rx-spec-wrap">
         <canvas id="rxSpecCanvas"></canvas>
         <div class="rx-spec-overlay">
-          <span class="rx-freq-label">600 Hz</span>
+          <span class="rx-freq-label" id="rxFreqLo">600 Hz</span>
           <span class="rx-freq-label rx-freq-mid">DATA BAND</span>
-          <span class="rx-freq-label">4500 Hz</span>
+          <span class="rx-freq-label" id="rxFreqHi">4500 Hz</span>
         </div>
       </div>
 
@@ -214,8 +237,7 @@
         <div class="img-actions" id="imgActions">
           <button class="btn-save" onclick="saveImg()">
             <svg viewBox="0 0 14 14" fill="none" width="11" height="11">
-              <path d="M7 1v8M4 6l3 3 3-3M1 11h12"
-                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M7 1v8M4 6l3 3 3-3M1 11h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             SAVE PNG
           </button>
@@ -223,12 +245,8 @@
       </div>
 
       <div class="action-row">
-        <button class="btn-pause-ctrl rx-pause" id="btnPauseRx" disabled onclick="togglePauseRx()">
-          ⏸ PAUSE
-        </button>
-        <button class="btn-primary rx" id="btnListen" onclick="toggleRx()">
-          START LISTENING
-        </button>
+        <button class="btn-pause-ctrl rx-pause" id="btnPauseRx" disabled onclick="togglePauseRx()">⏸ PAUSE</button>
+        <button class="btn-primary rx" id="btnListen" onclick="toggleRx()">START LISTENING</button>
         <button class="btn-ghost" onclick="clearRx()">CLEAR</button>
       </div>
 
@@ -238,13 +256,11 @@
       </div>
 
     </section>
-  </div><!-- /.app -->
-
+  </div>
 
   <!-- ═══════════════════ CODE ENTRY POPUP ═══════════════════ -->
   <div class="overlay hidden" id="codeOverlay" onclick="codeOverlayClick(event)">
     <div class="code-entry-popup">
-
       <div class="popup-head">
         <div>
           <div class="popup-eyebrow">RECEIVER SETUP</div>
@@ -256,31 +272,18 @@
           </svg>
         </button>
       </div>
-
       <p class="code-entry-desc">
-        Enter the 9-character code displayed on the transmitting computer.
-        The code contains image size, color depth, and tone speed — no manual settings needed.
+        Enter the 9-character code shown on the transmitter. It encodes image size, colors,
+        tone speed, and transmission mode — both sides sync automatically.
       </p>
-
       <div class="code-input-wrap">
-        <input
-          class="code-input"
-          id="codeInput"
-          placeholder="XXXX-XXXX-X"
-          maxlength="11"
-          autocomplete="off"
-          spellcheck="false"
-          oninput="formatCodeInput(this)"
-          onkeydown="if(event.key==='Enter') submitCode()"
-        >
+        <input class="code-input" id="codeInput" placeholder="XXXX-XXXX-X" maxlength="11"
+          autocomplete="off" spellcheck="false"
+          oninput="formatCodeInput(this)" onkeydown="if(event.key==='Enter') submitCode()">
         <div class="code-input-status" id="codeInputStatus"></div>
       </div>
-
       <div class="code-decoded-preview" id="codeDecodedPreview"></div>
-
-      <button class="btn-apply" id="btnSubmitCode" onclick="submitCode()">
-        CONNECT &amp; CONFIGURE
-      </button>
+      <button class="btn-apply" onclick="submitCode()">PAIR &amp; CONFIGURE</button>
     </div>
   </div>
 
@@ -300,12 +303,43 @@
         </button>
       </div>
 
-      <!-- Colors slider -->
+      <!-- ── MODES ── -->
       <div class="ctrl-group">
+        <div class="ctrl-label">Transmission Modes</div>
+
+        <div class="mode-switch-row">
+          <div class="mode-sw-info">
+            <span class="mode-sw-icon">◑</span>
+            <div>
+              <div class="mode-sw-name">Black &amp; White</div>
+              <div class="mode-sw-desc">2 tones only · fastest possible · no color data</div>
+            </div>
+          </div>
+          <button class="toggle-switch" id="toggleBW" onclick="toggleBW()">
+            <span class="toggle-knob"></span>
+          </button>
+        </div>
+
+        <div class="mode-switch-row">
+          <div class="mode-sw-info">
+            <span class="mode-sw-icon">🔉</span>
+            <div>
+              <div class="mode-sw-name">Low Pitch</div>
+              <div class="mode-sw-desc">100 – 700 Hz · max 20 colors · quieter tones</div>
+            </div>
+          </div>
+          <button class="toggle-switch" id="toggleLP" onclick="toggleLP()">
+            <span class="toggle-knob"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Colors slider -->
+      <div class="ctrl-group" id="colGroup">
         <div class="ctrl-head">
           <div>
             <div class="ctrl-label">Color Depth</div>
-            <div class="ctrl-desc">Number of distinct palette colors (32 – 300)</div>
+            <div class="ctrl-desc" id="colDesc">Number of distinct palette colors (32 – 300)</div>
           </div>
           <div class="ctrl-val-big" id="colVal">124</div>
         </div>
@@ -313,9 +347,9 @@
           <div class="pal-preview" id="palPreview"></div>
         </div>
         <input type="range" class="range-input" id="colSlider"
-               min="32" max="300" step="4" value="124"
+               min="4" max="300" step="4" value="124"
                oninput="onColChange(this.value)">
-        <div class="range-labels"><span>32 colors</span><span>300 colors</span></div>
+        <div class="range-labels" id="colRangeLabels"><span>2 colors</span><span>300 colors</span></div>
       </div>
 
       <!-- Resolution slider -->
@@ -381,15 +415,14 @@
           <div class="etl-seg etl-data" id="etlData"></div>
           <div class="etl-seg etl-end"  id="etlEnd"></div>
         </div>
-        <div class="est-timeline-labels">
-          <span>Start</span><span>Data</span><span>End</span>
-        </div>
+        <div class="est-timeline-labels"><span>Start</span><span>Data</span><span>End</span></div>
       </div>
 
-      <!-- Live code preview -->
+      <!-- Code preview -->
       <div class="settings-code-preview">
-        <span class="code-eyebrow" style="color:var(--tx)">CODE PREVIEW</span>
+        <span class="code-eyebrow" style="color:var(--tx)">TRANSFER CODE</span>
         <div class="settings-code-val" id="settingsCodeVal">—</div>
+        <div class="settings-code-desc" id="settingsCodeDesc"></div>
       </div>
 
       <button class="btn-apply" onclick="applySettings()">APPLY &amp; CLOSE</button>
@@ -399,7 +432,6 @@
   <!-- ═══════════════════ PREVIEW MODAL ═══════════════════ -->
   <div class="prev-overlay hidden" id="prevOverlay" onclick="closePrevOverlay(event)">
     <div class="prev-popup">
-
       <div class="prev-head">
         <div>
           <div class="prev-eyebrow">PALETTE PREVIEW</div>
@@ -411,7 +443,6 @@
           </svg>
         </button>
       </div>
-
       <div class="prev-canvases">
         <div class="prev-panel">
           <div class="prev-panel-label">ORIGINAL</div>
@@ -423,7 +454,6 @@
           <canvas id="quantThumb" class="prev-canvas"></canvas>
         </div>
       </div>
-
       <div class="prev-meta" id="prevMeta">—</div>
     </div>
   </div>
