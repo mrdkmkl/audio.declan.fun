@@ -10,7 +10,6 @@
 </head>
 <body>
 
-  <!-- Animated background -->
   <canvas id="bgCanvas"></canvas>
 
   <div class="app">
@@ -19,11 +18,11 @@
     <header class="app-header">
       <div class="logo">
         <div class="logo-glyph">
-          <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
-            <circle cx="18" cy="18" r="9"  stroke="currentColor" stroke-width="1.5" opacity="0.65"/>
+          <svg viewBox="0 0 36 36" fill="none">
+            <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-width="1.5" opacity="0.35"/>
+            <circle cx="18" cy="18" r="9"  stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
             <circle cx="18" cy="18" r="4"  fill="currentColor"/>
-            <line x1="4" y1="18" x2="14" y2="18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="4"  y1="18" x2="14" y2="18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             <line x1="22" y1="18" x2="32" y2="18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
         </div>
@@ -38,7 +37,8 @@
           <span class="settings-icon">
             <svg viewBox="0 0 18 18" fill="none" width="14" height="14">
               <circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.4"/>
-              <path d="M9 1v2M9 15v2M1 9h2M15 9h2M3.22 3.22l1.41 1.41M13.37 13.37l1.41 1.41M3.22 14.78l1.41-1.41M13.37 4.63l1.41-1.41" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              <path d="M9 1v2M9 15v2M1 9h2M15 9h2M3.22 3.22l1.41 1.41M13.37 13.37l1.41 1.41M3.22 14.78l1.41-1.41M13.37 4.63l1.41-1.41"
+                    stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
             </svg>
           </span>
           <span class="settings-label">Settings</span>
@@ -56,22 +56,23 @@
       </div>
     </header>
 
-    <!-- ══════════════ TX PANEL ══════════════ -->
+    <!-- ═══════════════════ TX PANEL ═══════════════════ -->
     <section class="panel tx-panel" id="txPanel">
+
       <div class="panel-head">
         <div class="panel-title-group">
           <span class="panel-eyebrow tx">TRANSMITTER</span>
-          <h2 class="panel-h2 tx">Signal Output</h2>
+          <h2 class="panel-h2">Signal Output</h2>
         </div>
         <div class="pal-strip-wrap">
           <div class="pal-strip" id="palStripTx"></div>
-          <span class="pal-count tx" id="palCountTx">124 colors</span>
+          <span class="pal-count" id="palCountTx">124 colors</span>
         </div>
       </div>
 
       <!-- Speaker selector -->
       <div class="device-row">
-        <div class="device-icon">🔊</div>
+        <span class="device-icon">🔊</span>
         <span class="device-lbl">OUTPUT</span>
         <select class="device-sel" id="spkSel"></select>
         <span class="device-badge" id="spkBadge">Default</span>
@@ -92,7 +93,7 @@
           <p class="drop-title">Drop Image Here</p>
           <p class="drop-sub">or click to browse · any format</p>
         </div>
-        <div class="drop-info-bar" id="dropInfoBar">
+        <div class="drop-info-bar">
           <span id="dropInfo">—</span>
         </div>
       </div>
@@ -111,34 +112,43 @@
         </div>
       </div>
 
-      <!-- Spectrum -->
+      <!-- Spectrum visualiser -->
       <div class="spec-section">
-        <div class="spec-label">SPECTRUM</div>
+        <span class="spec-label">LIVE SPECTRUM</span>
         <div class="spec-bars" id="specBars"></div>
       </div>
 
       <!-- Actions -->
       <div class="action-row">
-        <button class="btn-primary tx" id="btnTransmit" disabled onclick="toggleTx()">
+        <button class="btn-preview" id="btnPreview" disabled onclick="showPreview()">
+          <svg viewBox="0 0 14 14" fill="none" width="12" height="12">
+            <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4Z"
+                  stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+            <circle cx="7" cy="7" r="1.8" fill="currentColor"/>
+          </svg>
+          PREVIEW
+        </button>
+        <button class="btn-primary tx" id="btnTransmit" disabled onclick="handleTransmitClick()">
           TRANSMIT
         </button>
       </div>
 
-      <!-- Status -->
       <div class="status-bar">
         <div class="led" id="txLed"></div>
         <span id="txStatus">Load an image to begin</span>
       </div>
+
     </section>
 
-    <!-- ══════════════ RX PANEL ══════════════ -->
+    <!-- ═══════════════════ RX PANEL ═══════════════════ -->
     <section class="panel rx-panel hidden" id="rxPanel">
+
       <div class="panel-head">
         <div class="panel-title-group">
           <span class="panel-eyebrow rx">RECEIVER</span>
-          <h2 class="panel-h2 rx">Signal Input</h2>
+          <h2 class="panel-h2">Signal Input</h2>
         </div>
-        <div class="rx-auto-info" id="rxAutoInfo">
+        <div class="rx-auto-info">
           <span class="auto-badge">AUTO-CONFIG</span>
           <span class="auto-detail" id="autoDetail">Awaiting header…</span>
         </div>
@@ -146,7 +156,7 @@
 
       <!-- Mic selector -->
       <div class="device-row">
-        <div class="device-icon">🎙</div>
+        <span class="device-icon">🎙</span>
         <span class="device-lbl">MIC IN</span>
         <select class="device-sel" id="micSel" onchange="onMicChange()"></select>
         <span class="device-badge" id="micBadge">Default</span>
@@ -156,19 +166,52 @@
       <div class="rx-spec-wrap">
         <canvas id="rxSpecCanvas"></canvas>
         <div class="rx-spec-overlay">
-          <span class="rx-freq-low">600 Hz</span>
-          <span class="rx-freq-mid">DATA BAND</span>
-          <span class="rx-freq-hi">4500 Hz</span>
+          <span class="rx-freq-label">600 Hz</span>
+          <span class="rx-freq-label rx-freq-mid">DATA BAND</span>
+          <span class="rx-freq-label">4500 Hz</span>
         </div>
       </div>
 
-      <!-- State readout -->
+      <!-- Phase display -->
       <div class="rx-state-row">
         <div class="rx-phase-wrap">
           <div class="rx-phase-label" id="rxPhaseLabel">IDLE</div>
-          <div class="rx-phase-sub" id="rxPhaseSub">Awaiting sync signal</div>
+          <div class="rx-phase-sub"   id="rxPhaseSub">Awaiting sync signal</div>
         </div>
         <div class="rx-pixel-count" id="rxPixelCount">0 px</div>
+      </div>
+
+      <!-- MANUAL OVERRIDE -->
+      <div class="manual-section">
+        <button class="manual-toggle" id="manualToggle" onclick="toggleManual()">
+          <svg viewBox="0 0 12 12" fill="none" width="10" height="10">
+            <path d="M2 3h8M4 6h4M5 9h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          MANUAL OVERRIDE
+          <span class="manual-chevron" id="manualChevron">▾</span>
+        </button>
+        <div class="manual-body hidden" id="manualBody">
+          <p class="manual-desc">
+            Bypass header — enter the known size and tone duration to receive directly.
+            Use if the image finishes too early or the header fails.
+          </p>
+          <div class="manual-inputs">
+            <div class="manual-field">
+              <label class="manual-lbl">SIZE (px²)</label>
+              <input class="manual-input" type="number" id="manSize"
+                     placeholder="32" min="1" max="6000" step="1">
+              <span class="manual-unit">px</span>
+            </div>
+            <div class="manual-field">
+              <label class="manual-lbl">TONE</label>
+              <input class="manual-input" type="number" id="manTone"
+                     placeholder="50" min="1" max="200" step="1">
+              <span class="manual-unit">ms</span>
+            </div>
+            <button class="btn-manual-apply" onclick="applyManual()">USE</button>
+          </div>
+          <div class="manual-status" id="manualStatus">No manual config set</div>
+        </div>
       </div>
 
       <!-- Received image -->
@@ -181,14 +224,14 @@
         <div class="img-actions" id="imgActions">
           <button class="btn-save" onclick="saveImg()">
             <svg viewBox="0 0 14 14" fill="none" width="11" height="11">
-              <path d="M7 1v8M4 6l3 3 3-3M1 11h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M7 1v8M4 6l3 3 3-3M1 11h12"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             SAVE PNG
           </button>
         </div>
       </div>
 
-      <!-- RX Actions -->
       <div class="action-row">
         <button class="btn-primary rx" id="btnListen" onclick="toggleRx()">
           START LISTENING
@@ -196,18 +239,18 @@
         <button class="btn-ghost" onclick="clearRx()">CLEAR</button>
       </div>
 
-      <!-- Status -->
       <div class="status-bar">
         <div class="led" id="rxLed"></div>
         <span id="rxStatus">Microphone not active</span>
       </div>
-    </section>
 
+    </section>
   </div><!-- /.app -->
 
-  <!-- ══════════════ CONTROLS POPUP ══════════════ -->
+
+  <!-- ═══════════════════ CONTROLS POPUP ═══════════════════ -->
   <div class="overlay hidden" id="overlay" onclick="overlayClick(event)">
-    <div class="controls-popup" id="controlsPopup">
+    <div class="controls-popup">
 
       <div class="popup-head">
         <div>
@@ -226,7 +269,7 @@
         <div class="ctrl-head">
           <div>
             <div class="ctrl-label">Color Depth</div>
-            <div class="ctrl-desc">Number of distinct colors in the palette</div>
+            <div class="ctrl-desc">Number of distinct palette colors (32 – 300)</div>
           </div>
           <div class="ctrl-val-big" id="colVal">124</div>
         </div>
@@ -236,10 +279,7 @@
         <input type="range" class="range-input" id="colSlider"
                min="32" max="300" step="4" value="124"
                oninput="onColChange(this.value)">
-        <div class="range-labels">
-          <span>32 colors</span>
-          <span>300 colors</span>
-        </div>
+        <div class="range-labels"><span>32 colors</span><span>300 colors</span></div>
       </div>
 
       <!-- Resolution slider -->
@@ -247,7 +287,7 @@
         <div class="ctrl-head">
           <div>
             <div class="ctrl-label">Resolution</div>
-            <div class="ctrl-desc">Output image dimensions (log scale)</div>
+            <div class="ctrl-desc">Image dimensions — logarithmic scale (1 – 6000)</div>
           </div>
           <div class="ctrl-val-big" id="resVal">32×32</div>
         </div>
@@ -258,38 +298,32 @@
         <input type="range" class="range-input" id="resSlider"
                min="0" max="100" step="0.5" value="25"
                oninput="onResChange(this.value)">
-        <div class="range-labels">
-          <span>1 × 1</span>
-          <span>6000 × 6000</span>
-        </div>
+        <div class="range-labels"><span>1 × 1</span><span>6000 × 6000</span></div>
       </div>
 
-      <!-- Time slider -->
+      <!-- Tone duration slider -->
       <div class="ctrl-group">
         <div class="ctrl-head">
           <div>
             <div class="ctrl-label">Tone Duration</div>
-            <div class="ctrl-desc">Milliseconds per pixel · 50ms = normal speed</div>
+            <div class="ctrl-desc">ms per pixel · 50 = normal · also encodes in header</div>
           </div>
           <div class="ctrl-val-big" id="tmVal">50ms</div>
         </div>
-        <div class="tm-speed-bar" id="tmSpeedBar">
+        <div class="tm-speed-bar">
           <div class="speed-fill" id="speedFill"></div>
           <span class="speed-label" id="speedLabel">Normal</span>
         </div>
         <input type="range" class="range-input" id="tmSlider"
                min="1" max="200" step="1" value="50"
                oninput="onTmChange(this.value)">
-        <div class="range-labels">
-          <span>1ms · fastest</span>
-          <span>200ms · most reliable</span>
-        </div>
+        <div class="range-labels"><span>1ms · fastest</span><span>200ms · most reliable</span></div>
       </div>
 
       <!-- Estimate -->
       <div class="estimate-box">
         <div class="est-head">
-          <span class="est-title">Transmission Estimate</span>
+          <span class="est-title">TRANSMISSION ESTIMATE</span>
           <span class="est-note" id="estNote">—</span>
         </div>
         <div class="est-grid">
@@ -298,21 +332,58 @@
             <div class="est-lbl">Total Pixels</div>
           </div>
           <div class="est-card">
-            <div class="est-val" id="estHdr">~3.0s</div>
-            <div class="est-lbl">Header Overhead</div>
+            <div class="est-val" id="estHdr">—</div>
+            <div class="est-lbl">Header Time</div>
           </div>
-          <div class="est-card est-card-wide">
+          <div class="est-card">
             <div class="est-val accent" id="estTotal">—</div>
-            <div class="est-lbl">Total Transfer Time</div>
+            <div class="est-lbl">Total Transfer</div>
           </div>
         </div>
-        <div class="est-timeline" id="estTimeline">
-          <div class="etl-seg etl-hdr" id="etlHdr" title="Header"></div>
-          <div class="etl-seg etl-pix" id="etlPix" title="Pixels"></div>
+        <div class="est-timeline">
+          <div class="etl-seg etl-sync" id="etlSync"></div>
+          <div class="etl-seg etl-hdr"  id="etlHdr"></div>
+          <div class="etl-seg etl-data" id="etlData"></div>
+          <div class="etl-seg etl-end"  id="etlEnd"></div>
+        </div>
+        <div class="est-timeline-labels">
+          <span>Sync</span><span>Header</span><span>Data</span><span>End</span>
         </div>
       </div>
 
-      <button class="btn-apply" onclick="applySettings()">APPLY & CLOSE</button>
+      <button class="btn-apply" onclick="applySettings()">APPLY &amp; CLOSE</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ PREVIEW MODAL ═══════════════════ -->
+  <div class="prev-overlay hidden" id="prevOverlay" onclick="closePrevOverlay(event)">
+    <div class="prev-popup">
+
+      <div class="prev-head">
+        <div>
+          <div class="prev-eyebrow">PALETTE PREVIEW</div>
+          <h3 class="prev-title">Quantized Output</h3>
+        </div>
+        <button class="btn-close" onclick="closePreview()">
+          <svg viewBox="0 0 12 12" fill="none" width="12" height="12">
+            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="prev-canvases">
+        <div class="prev-panel">
+          <div class="prev-panel-label">ORIGINAL</div>
+          <canvas id="origThumb" class="prev-canvas"></canvas>
+        </div>
+        <div class="prev-arrow">→</div>
+        <div class="prev-panel">
+          <div class="prev-panel-label">AS TRANSMITTED</div>
+          <canvas id="quantThumb" class="prev-canvas"></canvas>
+        </div>
+      </div>
+
+      <div class="prev-meta" id="prevMeta">—</div>
     </div>
   </div>
 
