@@ -48,15 +48,15 @@ const BAND_LP = {
 //  PROTOCOL TIMING
 // ──────────────────────────────────────────
 const P = {
-  SYNC_MS:   300,
-  RESUME_MS: 200,
-  END_MS:    400,
-  PX_GAP:      4,
-  PRE_GAP:    60,
-  ATT:       0.005,
-  REL:       0.005,
-  LOOKAHEAD: 0.15,
-  SCHED_INT:  25,
+  SYNC_MS:   400,   // ms — start tone duration (clearly detectable)
+  RESUME_MS: 250,   // ms — resume-after-pause marker
+  END_MS:    500,   // ms — end marker (longer = reliable detection)
+  PX_GAP:      5,   // ms — silence gap between pixel tones
+  PRE_GAP:   500,   // ms — silence AFTER start tone, BEFORE first pixel (sync window)
+  ATT:       0.004, // s  — tone attack
+  REL:       0.004, // s  — tone release
+  LOOKAHEAD: 0.12,  // s  — schedule this far ahead
+  SCHED_INT:  20,   // ms — scheduler poll interval
 };
 
 // ──────────────────────────────────────────
@@ -263,6 +263,10 @@ function handlePairMsg(e) {
       updatePairUI();
     }
     if (msg.t === 'rx-done') {
+      if (isTx) {
+        // RX finished but TX is still going — something went wrong (timing drift, missed tones)
+        showTxError(`RX finished early at pixel ${(msg.px || 0).toLocaleString()} — TX still has ${(txPixels.length - txCurrentPx).toLocaleString()} pixels left. Try increasing Tone Duration in Settings.`);
+      }
       updatePairUI('RX DONE ✓');
     }
   } else {
@@ -283,6 +287,8 @@ function handlePairMsg(e) {
     if (msg.t === 'tx-start') {
       mirrorTotal = msg.total || 0; mirrorPx = 0;
       showMirror('TRANSMITTING', 0, mirrorTotal);
+      // Auto-start RX when TX begins — if paired and code is set
+      if (rxCode && !isRx) startRx();
     }
     if (msg.t === 'tx-progress') {
       mirrorPx = msg.px; mirrorTotal = msg.total;
@@ -492,12 +498,21 @@ function buildPalette(n, bwOverride) {
     palette = [[10, 10, 12], [242, 242, 248]];
     return;
   }
+  // Build chromatic colors then SORT BY HUE so that adjacent palette indices
+  // are perceptually similar. This means a small frequency detection error on RX
+  // only shifts the color slightly instead of jumping to a random hue.
+  // Result: more colors = more coverage = genuinely more accurate image.
   const chromatic = Math.max(0, n - 4);
   const tiers = [[92,20],[85,35],[78,50],[70,65],[62,79]];
+  const entries = [];
   for (let i = 0; i < chromatic; i++) {
     const [s, l] = tiers[i % tiers.length];
-    palette.push(hsl2rgb((i * 137.508) % 360, s, l));
+    const h = (i * 137.508) % 360;          // golden-angle spread for good coverage
+    entries.push({ h, rgb: hsl2rgb(h, s, l) });
   }
+  entries.sort((a, b) => a.h - b.h);        // sort by hue — key accuracy fix
+  entries.forEach(e => palette.push(e.rgb));
+  // Neutrals at the end (darkest → lightest = index n-4..n-1)
   palette.push([10,10,12],[80,80,88],[165,165,175],[242,242,248]);
 }
 
@@ -607,6 +622,66 @@ function loadFile(file) {
   rd.readAsDataURL(file);
 }
 
+// ── Example image (used when no image is loaded) ──
+function loadExampleImage() {
+  const SIZE = 128;
+  const oc = Object.assign(document.createElement('canvas'), { width: SIZE, height: SIZE });
+  const cx = oc.getContext('2d');
+
+  // Warm sunset sky gradient
+  const sky = cx.createLinearGradient(0, 0, 0, SIZE);
+  sky.addColorStop(0,   '#1a0533');
+  sky.addColorStop(0.3, '#6b1a6e');
+  sky.addColorStop(0.6, '#e8501a');
+  sky.addColorStop(0.85,'#f5a623');
+  sky.addColorStop(1,   '#ffd47a');
+  cx.fillStyle = sky; cx.fillRect(0, 0, SIZE, SIZE);
+
+  // Sun disc
+  const sunG = cx.createRadialGradient(64, 80, 0, 64, 80, 24);
+  sunG.addColorStop(0, '#fff8c0'); sunG.addColorStop(0.4, '#ffe066'); sunG.addColorStop(1, 'rgba(255,180,0,0)');
+  cx.fillStyle = sunG; cx.fillRect(0, 40, SIZE, SIZE);
+
+  // Silhouette hills
+  cx.fillStyle = '#0d0820';
+  cx.beginPath(); cx.moveTo(0, SIZE);
+  cx.quadraticCurveTo(20, 72, 50, 80); cx.quadraticCurveTo(70, 86, 90, 76);
+  cx.quadraticCurveTo(110, 68, SIZE, 82); cx.lineTo(SIZE, SIZE); cx.fill();
+
+  // Stars
+  for (let i = 0; i < 28; i++) {
+    const x = (i * 47.3) % SIZE, y = (i * 31.7) % 55;
+    const a = 0.3 + (i % 3) * 0.3;
+    cx.fillStyle = `rgba(255,255,255,${a})`;
+    cx.fillRect(x, y, 1, 1);
+  }
+
+  // Tree silhouettes
+  [[12, 92], [22, 86], [100, 88], [112, 94]].forEach(([x, y]) => {
+    cx.fillStyle = '#060310';
+    cx.beginPath(); cx.moveTo(x, y - 18); cx.lineTo(x - 5, y); cx.lineTo(x + 5, y); cx.fill();
+    cx.beginPath(); cx.moveTo(x, y - 26); cx.lineTo(x - 4, y - 14); cx.lineTo(x + 4, y - 14); cx.fill();
+  });
+
+  // Foreground water reflection strip
+  const ref = cx.createLinearGradient(0, 100, 0, SIZE);
+  ref.addColorStop(0, 'rgba(232,80,26,0.35)'); ref.addColorStop(1, 'rgba(20,5,40,0.8)');
+  cx.fillStyle = ref; cx.fillRect(0, 100, SIZE, SIZE - 100);
+
+  // Wavy reflection lines
+  cx.strokeStyle = 'rgba(245,166,35,0.3)'; cx.lineWidth = 1;
+  for (let row = 104; row < SIZE; row += 5) {
+    cx.beginPath();
+    for (let x = 0; x < SIZE; x++) cx.lineTo(x, row + Math.sin(x * 0.18 + row * 0.4) * 1.5);
+    cx.stroke();
+  }
+
+  const img = new Image();
+  img.onload = () => { origImg = img; renderPreview(img); processImage(img, CFG.resolution, CFG.nColors); };
+  img.src = oc.toDataURL();
+  setTxMsg('Example image loaded — click TRANSMIT to send');
+}
+
 function renderPreview(img) {
   prevCV.width  = dropZone.offsetWidth  || 500;
   prevCV.height = dropZone.offsetHeight || 188;
@@ -628,7 +703,8 @@ function processImage(img, res, nc) {
   $('btnTransmit').disabled = false;
   $('btnPreview').disabled  = false;
   $('dropInfo').textContent = `${res}×${res} · ${(res*res).toLocaleString()} px · ${CFG.bw ? '2 colors (B&W)' : nc + ' colors'}`;
-  setTxMsg(`Ready — ${(res*res).toLocaleString()} pixels`);
+  if (!$('dropZone').classList.contains('loaded'))
+    setTxMsg(`Ready — ${(res*res).toLocaleString()} pixels`);
 }
 
 // ──────────────────────────────────────────
@@ -666,14 +742,21 @@ function closePrevOverlay(e) { if (e.target === $('prevOverlay')) closePreview()
 // ──────────────────────────────────────────
 async function handleTransmitClick() {
   if (isTx) { stopTx(); return; }
+
+  // Auto-load example if no image
+  if (!origImg) {
+    loadExampleImage();
+    await new Promise(r => setTimeout(r, 120)); // brief wait for canvas render
+  }
   if (!txPixels) return;
+
   const btn = $('btnTransmit');
   btn.disabled = true; $('btnPreview').disabled = true;
   const pctEl = $('progPct');
-  pctEl.textContent = 'LOADING'; pctEl.classList.add('loading');
-  setTxMsg('Processing…'); $('progDetail').textContent = 'Preparing…';
-  if (origImg) processImage(origImg, CFG.resolution, CFG.nColors);
-  await new Promise(r => setTimeout(r, 600));
+  pctEl.textContent = 'READY'; pctEl.classList.add('loading');
+  setTxMsg('Processing image…'); $('progDetail').textContent = 'Quantizing…';
+  processImage(origImg, CFG.resolution, CFG.nColors);
+  await new Promise(r => setTimeout(r, 80));
   pctEl.classList.remove('loading'); btn.disabled = false; $('btnPreview').disabled = false;
   startTx();
 }
@@ -691,6 +774,7 @@ function startTx() {
 
   pairSend({ t: 'tx-start', total: txPixels.length });
   startPairBcast();
+  clearTxError();
 
   try {
     txAC     = new (window.AudioContext || window.webkitAudioContext)();
@@ -702,13 +786,14 @@ function startTx() {
     txOsc.type = 'sine'; txOsc.connect(txGainNode); txGainNode.connect(txMaster);
     txGainNode.gain.setValueAtTime(0, 0); txOsc.start();
 
-    // Schedule start tone then begin real-time scheduler
+    // Schedule start tone then begin real-time scheduler after it + pre-gap
     let t = txAC.currentTime + 0.06;
     schedNote(BD.SYNC_F, t, P.SYNC_MS / 1000, 0.88);
     t += P.SYNC_MS / 1000 + P.PRE_GAP / 1000;
     txDataAnchorAC = t; txSchedTime = t;
 
-    txSchedTimer = setTimeout(runScheduler, P.SYNC_MS + P.PRE_GAP + 80);
+    // Start scheduler after start-tone + PRE_GAP has fully elapsed
+    txSchedTimer = setTimeout(runScheduler, P.SYNC_MS + P.PRE_GAP + 120);
     startTxSpec(); setTxMsg('Transmitting…');
     trackProgress();
   } catch(err) { setTxMsg(`Error: ${err.message}`); finishTx(false); }
@@ -842,6 +927,26 @@ function setProgress(p) {
 }
 function setTxMsg(m) { $('txStatus').textContent = m; }
 
+// ── TX Error Banner ──
+function showTxError(msg) {
+  let el = $('txErrorBanner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'txErrorBanner';
+    el.className = 'tx-error-banner';
+    el.innerHTML = `<span class="err-icon">⚠</span><span class="err-text" id="txErrorText"></span><button class="err-dismiss" onclick="clearTxError()">✕</button>`;
+    // Insert after status bar
+    const sb = $('txPanel').querySelector('.status-bar');
+    sb.parentNode.insertBefore(el, sb.nextSibling);
+  }
+  $('txErrorText').textContent = msg;
+  el.classList.add('visible');
+}
+function clearTxError() {
+  const el = $('txErrorBanner');
+  if (el) el.classList.remove('visible');
+}
+
 // ──────────────────────────────────────────
 //  TX SPECTRUM
 // ──────────────────────────────────────────
@@ -910,6 +1015,7 @@ async function startRx() {
   src.connect(rxAna); rxFD = new Uint8Array(rxAna.frequencyBinCount); rxFR = rxAC.sampleRate / rxAna.fftSize;
 
   isRx = true; rxUserPaused = false; resetRxState();
+  clearRxError();
   $('btnListen').textContent = 'STOP'; $('btnListen').classList.add('stopping');
   $('btnPauseRx').disabled = false;
   $('rxLed').className = 'led on-rx';
@@ -999,8 +1105,7 @@ function rxTick() {
     const pk = peakIn(BD.SYNC_F - BD.SYNC_W, BD.SYNC_F + BD.SYNC_W);
     if (pk.mag < BD.SYNC_TH - 12) {
       if (!rxSyncGone) rxSyncGone = now;
-      if (now - rxSyncGone > 30) {
-        // Sync ended — set up DATA from code
+      if (now - rxSyncGone > 50) {         // 50ms debounce — confirm tone really ended
         const cfg = rxCode
           ? { resolution: rxCode.resolution, nColors: rxCode.nColors, timeMs: rxCode.timeMs, bw: rxCode.bw }
           : { resolution: 32, nColors: 124, timeMs: 50, bw: false };
@@ -1009,8 +1114,11 @@ function rxTick() {
         buildPalette(cfg.nColors, cfg.bw);
         setupRxCanvas(cfg.resolution);
 
-        rxPhase = 'DATA'; rxDataStart = now + P.PRE_GAP;
-        rxLastPx = -1; rxLastSig = now; rxTxPaused = false;
+        rxPhase = 'DATA';
+        // rxDataStart is anchored to when sync ended + full PRE_GAP
+        // We record rxSyncGone as the reference, then add PRE_GAP
+        rxDataStart  = rxSyncGone + P.PRE_GAP;
+        rxLastPx     = -1; rxLastSig = now; rxTxPaused = false;
         rxResumeSyncStart = 0; rxResumeSyncGone = 0;
 
         setRxPhase(`RECEIVING — ${cfg.resolution}×${cfg.resolution}`,
@@ -1095,11 +1203,18 @@ function rxTick() {
 function finishRxData() {
   rxPhase = 'DONE';
   const total = rxDetCFG ? rxDetCFG.resolution ** 2 : 0;
-  setRxPhase('COMPLETE ✓', `${rxPxCnt.toLocaleString()} of ${total.toLocaleString()} pixels received`);
+  const complete = rxPxCnt >= total;
+
+  setRxPhase(complete ? 'COMPLETE ✓' : 'ENDED EARLY', `${rxPxCnt.toLocaleString()} of ${total.toLocaleString()} pixels received`);
   setRxMsg(`Done — ${rxPxCnt.toLocaleString()} px received`);
   $('imgOutput').classList.add('has-img');
   $('btnPauseRx').disabled = true;
-  pairSend({ t: 'rx-done', px: rxPxCnt });
+  pairSend({ t: 'rx-done', px: rxPxCnt, total });
+
+  // If TX mirror shows it's still going, that's a sync error — show warning
+  if (mirrorStatusStr === 'TRANSMITTING' && pairConnected) {
+    showRxError(`Finished ${(total - rxPxCnt).toLocaleString()} pixels early while TX is still running. Try increasing Tone Duration in Settings.`);
+  }
 }
 
 function setupRxCanvas(res) {
@@ -1122,6 +1237,25 @@ function saveImg() {
 
 function setRxMsg(m)          { $('rxStatus').textContent = m; }
 function setRxPhase(lbl, sub) { $('rxPhaseLabel').textContent = lbl; $('rxPhaseSub').textContent = sub || ''; }
+
+// ── RX Error Banner ──
+function showRxError(msg) {
+  let el = $('rxErrorBanner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'rxErrorBanner';
+    el.className = 'rx-error-banner tx-error-banner';
+    el.innerHTML = `<span class="err-icon">⚠</span><span class="err-text" id="rxErrorText"></span><button class="err-dismiss" onclick="clearRxError()">✕</button>`;
+    const sb = $('rxPanel').querySelector('.status-bar');
+    sb.parentNode.insertBefore(el, sb.nextSibling);
+  }
+  $('rxErrorText').textContent = msg;
+  el.classList.add('visible');
+}
+function clearRxError() {
+  const el = $('rxErrorBanner');
+  if (el) el.classList.remove('visible');
+}
 
 function drawRxSpec() {
   if (!isRx || !rxAna) return;
@@ -1318,3 +1452,7 @@ updateBadge();
 updateTxCode();
 updatePopup();
 enumDevices();
+
+// Enable transmit right away — example image will load on first click
+$('btnTransmit').disabled = false;
+setTxMsg('Drop an image or click TRANSMIT for an example');
