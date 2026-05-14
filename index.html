@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>audiopix</title>
+<link href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root {
+  --bg: #0a0a0a;
+  --surf: #111;
+  --surf2: #181818;
+  --border: #1e1e1e;
+  --border2: #282828;
+  --text: #c4c0b8;
+  --dim: #484440;
+  --dim2: #666;
+  --accent: #ff7c2a;
+  --a10: rgba(255,124,42,0.10);
+  --a20: rgba(255,124,42,0.20);
+  --a40: rgba(255,124,42,0.40);
+  --green: #52c97a;
+  --red: #e05050;
+  --font: 'Azeret Mono', 'Courier New', monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:12px; min-height:100vh; line-height:1.5; }
+
+/* ── header ── */
+header { padding:28px 36px 20px; border-bottom:1px solid var(--border); display:flex; align-items:flex-end; justify-content:space-between; }
+.logo { font-size:22px; font-weight:600; color:var(--accent); letter-spacing:-0.04em; }
+.logo sup { font-size:9px; font-weight:300; letter-spacing:0.12em; color:var(--dim2); vertical-align:super; margin-left:4px; }
+.tagline { font-size:10px; color:var(--dim2); letter-spacing:0.12em; }
+
+/* ── tabs ── */
+nav { display:flex; border-bottom:1px solid var(--border); padding:0 36px; }
+.tab { background:none; border:none; border-bottom:1.5px solid transparent; color:var(--dim2); font-family:var(--font); font-size:11px; letter-spacing:0.1em; padding:13px 18px 11px; cursor:pointer; margin-bottom:-1px; transition:color .15s; }
+.tab:hover { color:var(--text); }
+.tab.on { color:var(--accent); border-bottom-color:var(--accent); }
+
+/* ── main ── */
+main { padding:28px 36px 48px; max-width:860px; }
+.panel { display:none; }
+.panel.on { display:block; }
+
+/* ── section ── */
+.sec { margin-bottom:24px; }
+.lbl { font-size:9px; font-weight:500; letter-spacing:0.18em; color:var(--dim2); margin-bottom:9px; }
+
+/* ── id box ── */
+.id-row { display:flex; align-items:center; gap:10px; background:var(--surf); border:1px solid var(--border); padding:11px 15px; }
+.id-val { flex:1; font-size:15px; font-weight:500; color:var(--accent); letter-spacing:0.06em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ghost { background:none; border:1px solid var(--border); color:var(--dim2); font-family:var(--font); font-size:10px; letter-spacing:0.08em; padding:5px 10px; cursor:pointer; transition:all .15s; }
+.ghost:hover { border-color:var(--accent); color:var(--accent); }
+
+/* ── status pill ── */
+.status { display:flex; align-items:center; gap:7px; font-size:10px; color:var(--dim2); }
+.dot { width:5px; height:5px; border-radius:50%; background:var(--dim); flex-shrink:0; transition:background .3s; }
+.dot.ok { background:var(--green); }
+.dot.live { background:var(--accent); animation:blink 1s ease-in-out infinite; }
+.dot.err { background:var(--red); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* ── meta row ── */
+.meta { display:flex; align-items:center; gap:16px; margin-top:10px; flex-wrap:wrap; }
+
+/* ── upload ── */
+.drop { border:1px dashed var(--border2); padding:36px; text-align:center; cursor:pointer; transition:all .2s; position:relative; }
+.drop:hover,.drop.over { border-color:var(--accent); background:var(--a10); }
+.drop input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+.drop-hint { color:var(--dim2); font-size:11px; }
+.drop-hint em { color:var(--accent); font-style:normal; }
+
+/* ── canvases ── */
+.canvas-row { display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start; }
+.canvas-wrap { }
+.canvas-frame { background:var(--surf); border:1px solid var(--border); padding:2px; display:inline-block; }
+canvas { display:block; image-rendering:pixelated; image-rendering:crisp-edges; }
+.canvas-cap { font-size:9px; color:var(--dim2); margin-top:6px; letter-spacing:0.08em; }
+
+/* ── freq display ── */
+.freq-big { font-size:32px; font-weight:600; color:var(--accent); letter-spacing:-0.03em; line-height:1; }
+.freq-big .unit { font-size:13px; font-weight:300; color:var(--dim2); margin-left:4px; }
+
+/* ── progress ── */
+.track { height:1px; background:var(--surf2); position:relative; overflow:hidden; margin:6px 0; }
+.fill { position:absolute; left:0; top:0; height:100%; background:var(--accent); width:0%; transition:width .08s linear; }
+
+/* ── spectrum ── */
+.spec { width:100%; height:72px; display:block; border:1px solid var(--border); background:var(--surf); }
+
+/* ── buttons ── */
+.btn { background:none; border:1px solid var(--accent); color:var(--accent); font-family:var(--font); font-size:11px; letter-spacing:0.1em; padding:9px 22px; cursor:pointer; transition:all .15s; }
+.btn:hover { background:var(--accent); color:var(--bg); }
+.btn:disabled { border-color:var(--border2); color:var(--dim); cursor:not-allowed; }
+.btn:disabled:hover { background:none; color:var(--dim); }
+.btn.solid { background:var(--accent); color:var(--bg); font-weight:600; }
+.btn.solid:hover { background:#ff9448; border-color:#ff9448; }
+.btn.solid:disabled { background:var(--surf2); border-color:var(--border); color:var(--dim); }
+
+/* ── input ── */
+input[type=text] { background:var(--surf); border:1px solid var(--border); color:var(--text); font-family:var(--font); font-size:12px; padding:10px 13px; outline:none; width:100%; transition:border-color .15s; letter-spacing:0.04em; }
+input[type=text]:focus { border-color:var(--accent); }
+input[type=text]::placeholder { color:var(--dim); }
+
+/* ── seg ── */
+.seg { display:flex; gap:4px; }
+.seg-btn { background:var(--surf); border:1px solid var(--border); color:var(--dim2); font-family:var(--font); font-size:10px; letter-spacing:0.06em; padding:6px 11px; cursor:pointer; transition:all .15s; }
+.seg-btn:hover { border-color:var(--border2); color:var(--text); }
+.seg-btn.on { background:var(--a10); border-color:var(--accent); color:var(--accent); }
+
+/* ── slider ── */
+.slider-row { display:flex; align-items:center; gap:12px; }
+input[type=range] { -webkit-appearance:none; width:140px; height:1px; background:var(--border2); outline:none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:10px; height:10px; border-radius:50%; background:var(--accent); cursor:pointer; }
+.slider-val { font-size:11px; color:var(--accent); min-width:50px; }
+
+/* ── settings rows ── */
+.srow { display:flex; align-items:center; justify-content:space-between; padding:14px 0; border-bottom:1px solid var(--border); }
+.srow-left .slbl { font-size:11px; }
+.srow-left .ssub { font-size:9px; color:var(--dim2); margin-top:3px; letter-spacing:0.06em; }
+
+/* ── palette ── */
+.swatches { display:flex; gap:3px; flex-wrap:wrap; margin-top:8px; }
+.swatch { width:18px; height:18px; border:1px solid var(--border); }
+
+/* ── log ── */
+.logbox { font-size:9px; color:var(--dim2); line-height:2; max-height:64px; overflow-y:auto; margin-top:12px; letter-spacing:0.04em; }
+.logbox .e::before { content:'› '; color:var(--dim); }
+.logbox .hi { color:var(--accent); }
+
+/* ── divider ── */
+hr { border:none; border-top:1px solid var(--border); margin:22px 0; }
+
+/* ── flex utils ── */
+.row { display:flex; align-items:center; gap:10px; }
+.col { display:flex; flex-direction:column; gap:8px; }
+
+/* ── scrollbar ── */
+::-webkit-scrollbar { width:3px; }
+::-webkit-scrollbar-track { background:var(--bg); }
+::-webkit-scrollbar-thumb { background:var(--border2); }
+
+/* ── rx waiting overlay ── */
+#rx-canvas-wrap { position:relative; }
+#rx-overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(10,10,10,0.85); font-size:9px; color:var(--dim2); letter-spacing:0.1em; pointer-events:none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">audiopix <sup>v2</sup></div>
+    <div class="tagline" style="margin-top:4px;">image transmission via audio frequency encoding</div>
+  </div>
+  <div class="tagline" style="text-align:right; line-height:1.8;">
+    place devices near each other<br>open both transmit + receive tabs
+  </div>
+</header>
+
+<nav>
+  <button class="tab on" data-tab="tx">transmit</button>
+  <button class="tab" data-tab="rx">receive</button>
+  <button class="tab" data-tab="cfg">settings</button>
+</nav>
+
+<main>
+
+<!-- ═══ TRANSMIT ═══ -->
+<div class="panel on" id="tab-tx">
+
+  <div class="sec">
+    <div class="lbl">your peer id</div>
+    <div class="id-row">
+      <div class="id-val" id="tx-id">initializing…</div>
+      <button class="ghost" id="tx-copy">copy</button>
+      <button class="ghost" id="tx-newid">new</button>
+    </div>
+    <div class="meta">
+      <div class="status"><div class="dot" id="tx-dot"></div><span id="tx-st">waiting for receiver</span></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="lbl">source image</div>
+    <div class="drop" id="dropzone">
+      <input type="file" id="filein" accept="image/*">
+      <div class="drop-hint">drop image here or <em>click to browse</em></div>
+    </div>
+  </div>
+
+  <div class="sec" id="tx-prev-sec" style="display:none">
+    <div class="lbl">preview</div>
+    <div class="canvas-row">
+      <div class="canvas-wrap">
+        <div class="canvas-frame"><canvas id="tx-orig" width="160" height="160"></canvas></div>
+        <div class="canvas-cap">original</div>
+      </div>
+      <div class="canvas-wrap">
+        <div class="canvas-frame"><canvas id="tx-quant" width="160" height="160"></canvas></div>
+        <div class="canvas-cap" id="tx-quant-cap">quantized</div>
+      </div>
+      <div class="canvas-wrap" style="align-self:center">
+        <div class="lbl" style="margin-bottom:6px;">palette</div>
+        <div class="swatches" id="tx-swatches"></div>
+        <div style="margin-top:12px;" id="tx-freq-block" style="display:none">
+          <div class="lbl">current frequency</div>
+          <div class="freq-big" id="tx-freq-disp">—<span class="unit">hz</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec" id="tx-xmit-sec" style="display:none">
+    <div class="lbl">transmission</div>
+    <div class="track"><div class="fill" id="tx-prog"></div></div>
+    <div class="status" style="margin-top:6px;"><div class="dot" id="tx-xdot"></div><span id="tx-xst">ready</span></div>
+  </div>
+
+  <div class="row" style="gap:8px; margin-bottom:24px;">
+    <button class="btn solid" id="tx-go" disabled>transmit</button>
+    <button class="btn" id="tx-stop" style="display:none">stop</button>
+  </div>
+
+  <div class="sec">
+    <div class="lbl">live spectrum</div>
+    <canvas class="spec" id="tx-spec"></canvas>
+  </div>
+
+  <div class="logbox" id="tx-log"></div>
+</div>
+
+<!-- ═══ RECEIVE ═══ -->
+<div class="panel" id="tab-rx">
+
+  <div class="sec">
+    <div class="lbl">connect to transmitter</div>
+    <div class="col">
+      <input type="text" id="rx-input" placeholder="paste transmitter peer id here">
+      <div class="row">
+        <button class="btn solid" id="rx-conn">connect</button>
+        <div class="status"><div class="dot" id="rx-dot"></div><span id="rx-st">disconnected</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec" id="rx-out-sec" style="display:none">
+    <div class="lbl">received image</div>
+    <div class="canvas-row">
+      <div class="canvas-wrap">
+        <div class="canvas-frame" id="rx-canvas-wrap">
+          <canvas id="rx-canvas" width="160" height="160"></canvas>
+          <div id="rx-overlay">waiting for signal…</div>
+        </div>
+        <div class="canvas-cap" id="rx-canvas-cap">—</div>
+      </div>
+      <div style="align-self:center">
+        <div class="lbl">detected frequency</div>
+        <div class="freq-big" id="rx-freq-disp">—<span class="unit">hz</span></div>
+        <div class="sec" id="rx-prog-sec" style="display:none; margin-top:14px;">
+          <div class="lbl">reception</div>
+          <div class="track"><div class="fill" id="rx-prog"></div></div>
+          <div class="status" style="margin-top:6px;"><div class="dot" id="rx-rdot"></div><span id="rx-rst">idle</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <div class="sec">
+    <div class="lbl">live spectrum</div>
+    <canvas class="spec" id="rx-spec"></canvas>
+  </div>
+
+  <div class="logbox" id="rx-log"></div>
+</div>
+
+<!-- ═══ SETTINGS ═══ -->
+<div class="panel" id="tab-cfg">
+
+  <div class="lbl" style="margin-bottom:18px;">transmission parameters</div>
+
+  <div class="srow">
+    <div class="srow-left">
+      <div class="slbl">pixel resolution</div>
+      <div class="ssub">grid size — total pixels transmitted</div>
+    </div>
+    <div class="seg" id="res-seg">
+      <button class="seg-btn" data-v="8">8×8</button>
+      <button class="seg-btn on" data-v="16">16×16</button>
+      <button class="seg-btn" data-v="32">32×32</button>
+    </div>
+  </div>
+
+  <div class="srow">
+    <div class="srow-left">
+      <div class="slbl">color depth</div>
+      <div class="ssub">number of distinct frequencies used</div>
+    </div>
+    <div class="seg" id="col-seg">
+      <button class="seg-btn" data-v="4">4</button>
+      <button class="seg-btn on" data-v="8">8</button>
+      <button class="seg-btn" data-v="16">16</button>
+      <button class="seg-btn" data-v="32">32</button>
+    </div>
+  </div>
+
+  <div class="srow">
+    <div class="srow-left">
+      <div class="slbl">note duration</div>
+      <div class="ssub">milliseconds per pixel — longer = more reliable</div>
+    </div>
+    <div class="slider-row">
+      <input type="range" id="dur-slider" min="50" max="600" step="10" value="150">
+      <div class="slider-val" id="dur-val">150ms</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <div class="lbl" style="margin-bottom:12px;">frequency map</div>
+  <canvas id="freq-map" height="56" style="width:100%; display:block; border:1px solid var(--border); background:var(--surf);"></canvas>
+
+  <div style="margin-top:14px; font-size:10px; color:var(--dim2); line-height:2.2;" id="freq-info"></div>
+
+  <hr>
+
+  <div class="lbl" style="margin-bottom:8px;">estimated transmission time</div>
+  <div style="font-size:18px; color:var(--accent); font-weight:500;" id="time-est"></div>
+
+</div>
+</main>
+
+<script>
+// ══════════════════════════════════════════
+// SETTINGS STATE
+// ══════════════════════════════════════════
+const S = { res: 16, colors: 8, dur: 150 };
+
+// ══════════════════════════════════════════
+// UTILITIES
+// ══════════════════════════════════════════
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function log(id, msg, hi) {
+  const el = document.getElementById(id + '-log');
+  if (!el) return;
+  const d = document.createElement('div');
+  d.className = hi ? 'e hi' : 'e';
+  d.textContent = msg;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+
+function mode(arr) {
+  const c = {}; let mv = 0, mk = arr[0];
+  for (const v of arr) { c[v] = (c[v]||0)+1; if (c[v] > mv) { mv=c[v]; mk=v; } }
+  return mk;
+}
+
+function cdist(a, b) {
+  return (a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2;
+}
+
+function toHex([r,g,b]) {
+  return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+}
+
+function fmtFreq(f) {
+  return f >= 1000 ? (f/1000).toFixed(2) + ' khz' : f + ' hz';
+}
+
+// ══════════════════════════════════════════
+// FREQUENCY MAPPING
+// ══════════════════════════════════════════
+function getFreqs(n) {
+  // Logarithmic spread: 1000 Hz → 5000 Hz
+  if (n === 1) return [2000];
+  return Array.from({length:n}, (_,i) => Math.round(1000 * Math.pow(5, i/(n-1))));
+}
+
+function nearestFreq(detected, freqs) {
+  let best = 0, bd = Infinity;
+  for (let i = 0; i < freqs.length; i++) {
+    const d = Math.abs(detected - freqs[i]);
+    if (d < bd) { bd=d; best=i; }
+  }
+  return best;
+}
+
+// ══════════════════════════════════════════
+// K-MEANS QUANTIZATION
+// ══════════════════════════════════════════
+function quantize(imgData, k, iters=18) {
+  const px = [];
+  for (let i = 0; i < imgData.data.length; i+=4)
+    px.push([imgData.data[i], imgData.data[i+1], imgData.data[i+2]]);
+
+  // k-means++ init
+  const C = [px[Math.floor(Math.random()*px.length)].slice()];
+  while (C.length < k) {
+    const d = px.map(p => Math.min(...C.map(c => cdist(p,c))));
+    const tot = d.reduce((a,b) => a+b, 0);
+    if (tot === 0) { C.push(C[0].slice()); continue; }
+    let r = Math.random() * tot;
+    for (let i = 0; i < px.length; i++) { r -= d[i]; if (r <= 0) { C.push(px[i].slice()); break; } }
+    if (C.length < k) C.push(px[Math.floor(Math.random()*px.length)].slice());
+  }
+
+  for (let it = 0; it < iters; it++) {
+    const cl = Array.from({length:k}, () => []);
+    for (const p of px) {
+      let bi=0, bd=Infinity;
+      for (let c=0;c<k;c++) { const d=cdist(p,C[c]); if(d<bd){bd=d;bi=c;} }
+      cl[bi].push(p);
+    }
+    for (let c=0;c<k;c++) {
+      if (!cl[c].length) continue;
+      const s = cl[c].reduce((a,b) => [a[0]+b[0],a[1]+b[1],a[2]+b[2]], [0,0,0]);
+      C[c] = s.map(v => Math.round(v/cl[c].length));
+    }
+  }
+
+  const idx = px.map(p => { let bi=0,bd=Infinity; for(let c=0;c<k;c++){const d=cdist(p,C[c]);if(d<bd){bd=d;bi=c;}} return bi; });
+  return { palette: C, indices: idx };
+}
+
+// ══════════════════════════════════════════
+// AUDIO ENGINE
+// ══════════════════════════════════════════
+let ctx = null, osc = null, gain = null, txAna = null, rxAna = null, micSrc = null;
+let txFreqs = [], rxFreqs = [];
+
+function ensureCtx() {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+function initTxAudio() {
+  const c = ensureCtx();
+  if (osc) { try { osc.stop(); } catch(e){} osc.disconnect(); }
+  if (gain) gain.disconnect();
+
+  osc = c.createOscillator();
+  gain = c.createGain();
+  txAna = c.createAnalyser();
+  txAna.fftSize = 8192;
+  txAna.smoothingTimeConstant = 0.08;
+
+  osc.type = 'sine';
+  gain.gain.value = 0;
+  osc.connect(gain);
+  gain.connect(txAna);
+  gain.connect(c.destination);
+  osc.start();
+  log('tx', 'audio engine started', true);
+}
+
+async function initRxAudio() {
+  const c = ensureCtx();
+  const stream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+  const src = c.createMediaStreamSource(stream);
+  rxAna = c.createAnalyser();
+  rxAna.fftSize = 8192;
+  rxAna.smoothingTimeConstant = 0.08;
+  src.connect(rxAna);
+  micSrc = src;
+  log('rx', 'microphone active', true);
+}
+
+function playTone(freq, durSec) {
+  if (!gain || !osc) return;
+  const t = ctx.currentTime;
+  osc.frequency.setValueAtTime(freq, t);
+  gain.gain.cancelScheduledValues(t);
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(0.65, t + 0.008);
+  gain.gain.setValueAtTime(0.65, t + Math.max(0.01, durSec - 0.012));
+  gain.gain.linearRampToValueAtTime(0, t + Math.max(0.015, durSec));
+}
+
+function silence() {
+  if (!gain) return;
+  const t = ctx.currentTime;
+  gain.gain.cancelScheduledValues(t);
+  gain.gain.linearRampToValueAtTime(0, t + 0.015);
+}
+
+function peakFreq(analyser) {
+  const n = analyser.frequencyBinCount;
+  const buf = new Float32Array(n);
+  analyser.getFloatFrequencyData(buf);
+  const sr = ctx.sampleRate, res = sr / (n * 2);
+  const lo = Math.floor(900/res), hi = Math.ceil(5500/res);
+  let mx = -Infinity, mb = lo;
+  for (let i = lo; i <= hi && i < n; i++) { if (buf[i] > mx) { mx=buf[i]; mb=i; } }
+  return mb * res;
+}
+
+// ══════════════════════════════════════════
+// PEER / CONNECTION
+// ══════════════════════════════════════════
+let txPeer = null, rxPeer = null, conn = null;
+let txConnected = false, txImageReady = false;
+let transmitting = false, receiving = false;
+
+function initTxPeer() {
+  if (txPeer) { try { txPeer.destroy(); } catch(e){} }
+  txPeer = new Peer({debug:0});
+
+  txPeer.on('open', id => {
+    document.getElementById('tx-id').textContent = id;
+    log('tx', 'peer ready: ' + id.slice(0,8) + '…');
+  });
+
+  txPeer.on('connection', c => {
+    conn = c;
+    c.on('open', () => {
+      txConnected = true;
+      setDot('tx', 'ok'); setTxSt('receiver connected');
+      log('tx', 'receiver connected', true);
+      checkReady();
+    });
+    c.on('close', () => {
+      txConnected = false;
+      setDot('tx', ''); setTxSt('receiver disconnected');
+      checkReady();
+    });
+  });
+
+  txPeer.on('error', e => log('tx', 'peer error: ' + e.type));
+}
+
+function initRxPeer() {
+  if (rxPeer) { try { rxPeer.destroy(); } catch(e){} }
+  rxPeer = new Peer({debug:0});
+  rxPeer.on('error', e => { log('rx', 'peer error: ' + e.type); setDot('rx','err'); });
+}
+
+function connectRx(txId) {
+  initRxPeer();
+  setDot('rx',''); setRxSt('connecting…');
+  const c = rxPeer.connect(txId, {reliable:true});
+  c.on('open', () => {
+    conn = c;
+    setDot('rx','ok'); setRxSt('connected');
+    log('rx', 'connected to transmitter', true);
+    c.on('data', handleRxData);
+    c.on('close', () => { setDot('rx',''); setRxSt('disconnected'); });
+  });
+  c.on('error', () => { setDot('rx','err'); setRxSt('connection failed'); log('rx', 'connection failed'); });
+}
+
+let rxMeta = null;
+
+async function handleRxData(data) {
+  if (data.type === 'meta') {
+    rxMeta = data;
+    log('rx', `meta: ${data.res}×${data.res}, ${data.colors} colors, ${data.dur}ms/px`);
+    showRxOut(data);
+  }
+  if (data.type === 'start') {
+    log('rx', 'start signal — syncing…', true);
+    setDot('rx-r', 'live'); setRxRSt('listening');
+    document.getElementById('rx-prog-sec').style.display = '';
+    try {
+      if (!rxAna) await initRxAudio();
+      await receiveLoop(data.ts, rxMeta);
+    } catch(e) {
+      log('rx', 'error: ' + e.message);
+    }
+  }
+}
+
+// ══════════════════════════════════════════
+// TX FLOW
+// ══════════════════════════════════════════
+let txPalette = [], txIndices = [];
+let lastImg = null; // for re-quantize on settings change
+
+function checkReady() {
+  const btn = document.getElementById('tx-go');
+  btn.disabled = !(txConnected && txImageReady);
+}
+
+function reprocessIfLoaded() {
+  if (lastImg) renderQuantized(lastImg);
+}
+
+async function doTransmit() {
+  if (!txConnected || !txImageReady) return;
+  transmitting = true;
+
+  initTxAudio();
+  const freqs = getFreqs(S.colors);
+  txFreqs = freqs;
+  const total = S.res * S.res;
+
+  // Send metadata
+  conn.send({ type:'meta', res:S.res, colors:S.colors, dur:S.dur, palette:txPalette });
+  await sleep(250);
+
+  const DELAY = 1400;
+  const ts = Date.now() + DELAY;
+  conn.send({ type:'start', ts });
+  log('tx', `starting in ${DELAY}ms — keep devices close`, true);
+
+  document.getElementById('tx-xmit-sec').style.display = '';
+  document.getElementById('tx-freq-block').style.display = '';
+  setXDot('live'); setTxXSt('transmitting');
+  document.getElementById('tx-go').style.display = 'none';
+  document.getElementById('tx-stop').style.display = '';
+
+  const wait = ts - Date.now();
+  if (wait > 0) await sleep(wait);
+
+  for (let i = 0; i < total; i++) {
+    if (!transmitting) break;
+    const f = freqs[txIndices[i]];
+    playTone(f, S.dur / 1000);
+    document.getElementById('tx-freq-disp').innerHTML = fmtFreq(Math.round(f)) + '<span class="unit"></span>';
+    highlightPixel(i);
+    setTxProg((i+1)/total*100);
+    await sleep(S.dur);
+  }
+
+  silence();
+  transmitting = false;
+  setXDot(''); setTxXSt('complete');
+  document.getElementById('tx-go').style.display = '';
+  document.getElementById('tx-stop').style.display = 'none';
+  document.getElementById('tx-go').disabled = false;
+  setTxProg(100);
+  document.getElementById('tx-freq-disp').innerHTML = '—<span class="unit">hz</span>';
+  log('tx', 'transmission complete ✓', true);
+  highlightPixel(-1);
+}
+
+function stopTx() {
+  transmitting = false;
+  silence();
+  setXDot(''); setTxXSt('stopped');
+  document.getElementById('tx-go').style.display = '';
+  document.getElementById('tx-stop').style.display = 'none';
+  checkReady();
+}
+
+// ══════════════════════════════════════════
+// RX FLOW
+// ══════════════════════════════════════════
+async function receiveLoop(ts, meta) {
+  const {res, colors, dur, palette} = meta;
+  const freqs = getFreqs(colors);
+  rxFreqs = freqs;
+  const total = res * res;
+  const SI = 14; // sample interval ms
+
+  const waitMs = ts - Date.now();
+  log('rx', `sync delay: ${Math.round(waitMs)}ms`);
+  if (waitMs > 0) await sleep(waitMs);
+
+  receiving = true;
+  log('rx', `receiving ${total} pixels…`);
+  document.getElementById('rx-overlay').style.display = 'none';
+
+  for (let i = 0; i < total; i++) {
+    if (!receiving) break;
+    const samples = [];
+    const n = Math.max(4, Math.floor(dur / SI));
+    for (let s = 0; s < n; s++) {
+      if (!receiving) break;
+      const f = peakFreq(rxAna);
+      samples.push(nearestFreq(f, freqs));
+      document.getElementById('rx-freq-disp').innerHTML = fmtFreq(Math.round(f)) + '<span class="unit"></span>';
+      await sleep(SI);
+    }
+    const ci = mode(samples);
+    drawRxPx(i, res, palette[ci]);
+    setRxProg((i+1)/total*100);
+  }
+
+  receiving = false;
+  setDot('rx-r','ok'); setRxRSt('complete');
+  document.getElementById('rx-canvas-cap').textContent = `received · ${res}×${res} · ${colors} colors`;
+  document.getElementById('rx-freq-disp').innerHTML = '—<span class="unit">hz</span>';
+  log('rx', 'reception complete ✓', true);
+}
+
+// ══════════════════════════════════════════
+// IMAGE PROCESSING
+// ══════════════════════════════════════════
+function processFile(file) {
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => { lastImg = img; renderQuantized(img); URL.revokeObjectURL(url); };
+  img.src = url;
+}
+
+function renderQuantized(img) {
+  const res = S.res;
+
+  // Original preview
+  const oc = document.getElementById('tx-orig');
+  const octx = oc.getContext('2d');
+  octx.clearRect(0,0,160,160);
+  const sc = Math.min(160/img.width, 160/img.height);
+  const w=img.width*sc, h=img.height*sc;
+  octx.drawImage(img, (160-w)/2, (160-h)/2, w, h);
+
+  // Resize to res×res
+  const tmp = Object.assign(document.createElement('canvas'), {width:res, height:res});
+  tmp.getContext('2d').drawImage(img, 0, 0, res, res);
+  const id = tmp.getContext('2d').getImageData(0, 0, res, res);
+
+  const {palette, indices} = quantize(id, S.colors);
+  txPalette = palette;
+  txIndices = indices;
+  txImageReady = true;
+
+  // Draw quantized
+  const qc = document.getElementById('tx-quant');
+  const qctx = qc.getContext('2d');
+  drawGrid(qctx, res, palette, indices);
+  document.getElementById('tx-quant-cap').textContent = `${res}×${res} · ${S.colors} colors`;
+
+  // Swatches
+  const sw = document.getElementById('tx-swatches');
+  sw.innerHTML = '';
+  palette.forEach(c => {
+    const d = document.createElement('div');
+    d.className = 'swatch';
+    d.style.background = toHex(c);
+    d.title = toHex(c);
+    sw.appendChild(d);
+  });
+
+  document.getElementById('tx-prev-sec').style.display = '';
+  log('tx', `loaded: ${res}×${res}, ${S.colors} colors`);
+  checkReady();
+}
+
+function drawGrid(ctx, res, pal, idx) {
+  ctx.clearRect(0,0,160,160);
+  const ps = Math.floor(160/res);
+  for (let i = 0; i < idx.length; i++) {
+    const [r,g,b] = pal[idx[i]];
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect((i%res)*ps, Math.floor(i/res)*ps, ps, ps);
+  }
+}
+
+function highlightPixel(i) {
+  if (!txPalette.length) return;
+  drawGrid(document.getElementById('tx-quant').getContext('2d'), S.res, txPalette, txIndices);
+  if (i < 0) return;
+  const ctx = document.getElementById('tx-quant').getContext('2d');
+  const ps = Math.floor(160/S.res);
+  ctx.strokeStyle = 'rgba(255,124,42,0.95)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect((i%S.res)*ps+0.5, Math.floor(i/S.res)*ps+0.5, ps-1, ps-1);
+}
+
+// ══════════════════════════════════════════
+// RX CANVAS
+// ══════════════════════════════════════════
+let rxCtx2 = null;
+
+function showRxOut(meta) {
+  document.getElementById('rx-out-sec').style.display = '';
+  const rc = document.getElementById('rx-canvas');
+  rxCtx2 = rc.getContext('2d');
+  rxCtx2.fillStyle = '#0f0f0f';
+  rxCtx2.fillRect(0,0,160,160);
+}
+
+function drawRxPx(i, res, color) {
+  if (!rxCtx2) return;
+  const ps = Math.floor(160/res);
+  const [r,g,b] = color;
+  rxCtx2.fillStyle = `rgb(${r},${g},${b})`;
+  rxCtx2.fillRect((i%res)*ps, Math.floor(i/res)*ps, ps, ps);
+}
+
+// ══════════════════════════════════════════
+// SPECTRUM VISUALIZER
+// ══════════════════════════════════════════
+let txSpec, rxSpec, txSctx, rxSctx;
+
+function initSpec() {
+  txSpec = document.getElementById('tx-spec');
+  rxSpec = document.getElementById('rx-spec');
+  [txSpec, rxSpec].forEach(c => { c.width = c.offsetWidth || 700; c.height = 72; });
+  txSctx = txSpec.getContext('2d');
+  rxSctx = rxSpec.getContext('2d');
+  renderSpec();
+}
+
+function drawSpec(canvas, ctx, analyser, freqs, active) {
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0,0,W,H);
+
+  const flo = 850, fhi = 5300;
+  const fx = f => ((f - flo) / (fhi - flo)) * W;
+
+  // Expected freq lines
+  const allF = freqs.length ? freqs : getFreqs(S.colors);
+  allF.forEach((f, i) => {
+    if (f < flo || f > fhi) return;
+    const x = fx(f), pct = i / Math.max(allF.length-1, 1);
+    const h = 20 + pct * 25;
+    ctx.strokeStyle = `hsla(${22 + pct*30}, 75%, ${h}%, 0.35)`;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2,3]);
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+    ctx.setLineDash([]);
+  });
+
+  if (analyser && active && ctx === (analyser === txAna ? txSctx : rxSctx)) {
+    const n = analyser.frequencyBinCount;
+    const buf = new Float32Array(n);
+    analyser.getFloatFrequencyData(buf);
+    const sr = ctx_sr();
+    const res = sr / (n*2);
+
+    // Bars
+    for (let i = 0; i < n; i++) {
+      const f = i * res;
+      if (f < flo || f > fhi) continue;
+      const x = fx(f);
+      const mag = Math.max(0, (buf[i] + 100) / 65);
+      const h2 = mag * H;
+      ctx.fillStyle = `rgba(255,124,42,${0.3 + mag*0.5})`;
+      ctx.fillRect(x, H - h2, 2.5, h2);
+    }
+
+    // Peak line
+    const peak = peakFreq(analyser);
+    if (peak >= flo && peak <= fhi) {
+      const px = fx(peak);
+      ctx.strokeStyle = '#ff7c2a';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(px,0); ctx.lineTo(px,H); ctx.stroke();
+      // label
+      ctx.fillStyle = '#ff7c2a';
+      ctx.font = '9px monospace';
+      ctx.textAlign = px > W*0.8 ? 'right' : 'left';
+      ctx.fillText(fmtFreq(Math.round(peak)), px + (px > W*0.8 ? -4 : 4), 14);
+    }
+  }
+
+  // Axis labels
+  [1000,2000,3000,4000,5000].forEach(f => {
+    const x = fx(f);
+    if (x < 0 || x > W) return;
+    ctx.fillStyle = 'rgba(100,96,90,0.6)';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText((f/1000).toFixed(0)+'k', x, H-3);
+  });
+}
+
+function ctx_sr() { return ctx ? ctx.sampleRate : 44100; }
+
+function renderSpec() {
+  drawSpec(txSpec, txSctx, txAna, txFreqs, transmitting);
+  drawSpec(rxSpec, rxSctx, rxAna, rxFreqs, receiving || !!rxAna);
+  requestAnimationFrame(renderSpec);
+}
+
+// ══════════════════════════════════════════
+// SETTINGS FREQ MAP
+// ══════════════════════════════════════════
+function updateFreqMap() {
+  const canvas = document.getElementById('freq-map');
+  canvas.width = canvas.offsetWidth || 700;
+  const ctx2 = canvas.getContext('2d');
+  const W = canvas.width, H = 56;
+  const freqs = getFreqs(S.colors);
+
+  ctx2.fillStyle = '#111';
+  ctx2.fillRect(0,0,W,H);
+
+  const step = W / S.colors;
+  freqs.forEach((f, i) => {
+    const pct = i / Math.max(freqs.length-1,1);
+    const h2 = 22 + pct*18;
+    ctx2.fillStyle = `hsl(${20+pct*35}, 75%, ${h2}%)`;
+    ctx2.fillRect(i*step+2, 8, step-4, H-22);
+    ctx2.fillStyle = '#777';
+    ctx2.font = '8.5px monospace';
+    ctx2.textAlign = 'center';
+    ctx2.fillText(f >= 1000 ? (f/1000).toFixed(1)+'k' : f+'', i*step+step/2, H-4);
+  });
+
+  const total = S.res * S.res;
+  const ms = total * S.dur;
+  document.getElementById('time-est').textContent =
+    `${total} px × ${S.dur}ms = ${(ms/1000).toFixed(1)}s`;
+
+  const minSep = freqs.length > 1 ? Math.round(freqs[1]-freqs[0]) : '—';
+  document.getElementById('freq-info').innerHTML =
+    `range: <span style="color:var(--text)">${freqs[0]} hz – ${freqs[freqs.length-1]} hz</span>
+     &nbsp;·&nbsp; min spacing: <span style="color:var(--text)">${minSep} hz</span>
+     &nbsp;·&nbsp; frequencies: <span style="color:var(--accent)">${freqs.join(' · ')} hz</span>`;
+}
+
+// ══════════════════════════════════════════
+// UI STATE HELPERS
+// ══════════════════════════════════════════
+function setDot(id, cls) {
+  const el = document.getElementById(id + (id.includes('-') ? '' : '') + '-dot');
+  if (el) el.className = 'dot' + (cls ? ' '+cls : '');
+}
+function setTxSt(t) { document.getElementById('tx-st').textContent = t; }
+function setXDot(cls) { const el = document.getElementById('tx-xdot'); if(el) el.className='dot'+(cls?' '+cls:''); }
+function setTxXSt(t) { document.getElementById('tx-xst').textContent = t; }
+function setTxProg(p) { document.getElementById('tx-prog').style.width = p+'%'; }
+function setRxSt(t) { document.getElementById('rx-st').textContent = t; }
+function setRxRSt(t) { document.getElementById('rx-rst').textContent = t; }
+function setRxProg(p) { document.getElementById('rx-prog').style.width = p+'%'; }
+
+// dot by prefix — need to wire the rx receive dot correctly
+function setDotById(id, cls) {
+  const el = document.getElementById(id);
+  if (el) el.className = 'dot' + (cls ? ' '+cls : '');
+}
+
+// Override setDot to handle rx-r prefix
+function setDot(prefix, cls) {
+  const id = prefix + '-dot';
+  setDotById(id, cls);
+}
+
+// ══════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+
+  // ── tabs ──
+  document.querySelectorAll('.tab').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.tab,.panel').forEach(e => e.classList.remove('on'));
+      b.classList.add('on');
+      document.getElementById('tab-'+b.dataset.tab).classList.add('on');
+      if (b.dataset.tab === 'cfg') updateFreqMap();
+    });
+  });
+
+  // ── init ──
+  initTxPeer();
+  setTimeout(() => { initSpec(); updateFreqMap(); }, 100);
+
+  // ── tx: copy id ──
+  document.getElementById('tx-copy').addEventListener('click', () => {
+    const v = document.getElementById('tx-id').textContent;
+    navigator.clipboard.writeText(v).then(() => {
+      const b = document.getElementById('tx-copy');
+      b.textContent = 'copied!';
+      setTimeout(() => b.textContent = 'copy', 1500);
+    });
+  });
+
+  // ── tx: new id ──
+  document.getElementById('tx-newid').addEventListener('click', () => {
+    txConnected = false;
+    document.getElementById('tx-id').textContent = 'regenerating…';
+    setDot('tx',''); setTxSt('waiting for receiver');
+    checkReady();
+    initTxPeer();
+  });
+
+  // ── file upload ──
+  const fi = document.getElementById('filein');
+  const dz = document.getElementById('dropzone');
+  fi.addEventListener('change', e => { if(e.target.files[0]) processFile(e.target.files[0]); });
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('over');
+    if(e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+  });
+
+  // ── tx: transmit / stop ──
+  document.getElementById('tx-go').addEventListener('click', doTransmit);
+  document.getElementById('tx-stop').addEventListener('click', stopTx);
+
+  // ── rx: connect ──
+  document.getElementById('rx-conn').addEventListener('click', () => {
+    const id = document.getElementById('rx-input').value.trim();
+    if (!id) return;
+    connectRx(id);
+  });
+  document.getElementById('rx-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('rx-conn').click();
+  });
+
+  // ── settings: resolution ──
+  document.querySelectorAll('#res-seg .seg-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#res-seg .seg-btn').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      S.res = parseInt(b.dataset.v);
+      reprocessIfLoaded();
+      updateFreqMap();
+    });
+  });
+
+  // ── settings: colors ──
+  document.querySelectorAll('#col-seg .seg-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#col-seg .seg-btn').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      S.colors = parseInt(b.dataset.v);
+      reprocessIfLoaded();
+      updateFreqMap();
+    });
+  });
+
+  // ── settings: duration ──
+  document.getElementById('dur-slider').addEventListener('input', function() {
+    S.dur = parseInt(this.value);
+    document.getElementById('dur-val').textContent = S.dur + 'ms';
+    updateFreqMap();
+  });
+
+  log('tx', 'audiopix ready');
+  log('rx', 'audiopix ready — enter transmitter peer id above');
+});
+</script>
+</body>
+</html>
